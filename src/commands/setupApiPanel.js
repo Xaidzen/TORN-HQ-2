@@ -6,15 +6,36 @@ const {
     ButtonStyle
 } = require('discord.js');
 
+const VERIFICATION_CHANNEL_ID =
+    process.env.VERIFICATION_CHANNEL_ID;
+
 const CUSTOM_API_KEY_URL =
     'https://www.torn.com/preferences.php#tab=api?step=addNewKey&user=faction,basic,bounties,discord,personalstats,profile,cooldowns,crimes&torn=attacklog,bounties,crimes&title=Torn%20HQ';
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('verify')
-        .setDescription('Open the Torn HQ verification panel.'),
+        .setDescription('Verify your Torn account.'),
 
     async execute(interaction) {
+
+        /*
+         * /verify ONLY works inside
+         * #Enter Verification.
+         */
+        if (
+            VERIFICATION_CHANNEL_ID &&
+            interaction.channelId !== VERIFICATION_CHANNEL_ID
+        ) {
+            await interaction.reply({
+                content:
+                    'You can only use `/verify` in the #Enter Verification channel.',
+                ephemeral: true
+            });
+
+            return;
+        }
+
         const embed = new EmbedBuilder()
             .setColor(0x57F287)
             .setDescription(
