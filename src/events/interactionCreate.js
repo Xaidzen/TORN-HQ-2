@@ -7,8 +7,8 @@ const {
     EmbedBuilder,
     ButtonBuilder,
     ButtonStyle,
-    PermissionFlagsBits,
-    ChannelType
+    ChannelType,
+    PermissionFlagsBits
 } = require('discord.js');
 
 const database = require('../modules/database');
