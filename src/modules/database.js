@@ -8,8 +8,9 @@ if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, 'torn-hq.db');
-const db = new Database(dbPath);
+const db = new Database(
+    path.join(dataDir, 'torn-hq.db')
+);
 
 db.pragma('journal_mode = WAL');
 
@@ -22,44 +23,92 @@ db.exec(`
 `);
 
 function getVerifiedUser(discordId) {
-    return db
-        .prepare(`
-            SELECT *
-            FROM verified_users
-            WHERE discord_id = ?
-        `)
-        .get(discordId);
+    return db.prepare(`
+        SELECT *
+        FROM verified_users
+        WHERE discord_id = ?
+    `).get(discordId);
 }
 
 function getDiscordUserByTornId(tornId) {
-    return db
-        .prepare(`
-            SELECT *
-            FROM verified_users
-            WHERE torn_id = ?
-        `)
-        .get(tornId);
+    return db.prepare(`
+        SELECT *
+        FROM verified_users
+        WHERE torn_id = ?
+    `).get(String(tornId));
+}
+
+function isVerified(discordId) {
+    return Boolean(getVerifiedUser(discordId));
 }
 
 function saveVerifiedUser(discordId, tornId) {
-    const existingDiscord = getVerifiedUser(discordId);
-
-    if (existingDiscord) {
-        return {
-            success: false,
-            reason: 'discord_already_verified'
-        };
-    }
+    tornId = String(tornId);
 
     const existingTorn = getDiscordUserByTornId(tornId);
 
-    if (existingTorn) {
+    /*
+     * One Torn account cannot be connected
+     * to multiple Discord accounts.
+     */
+    if (
+        existingTorn &&
+        existingTorn.discord_id !== discordId
+    ) {
         return {
             success: false,
             reason: 'torn_account_already_linked'
         };
     }
 
+    const existingDiscord = getVerifiedUser(discordId);
+
+    /*
+     * Already connected to this Torn account.
+     */
+    if (
+        existingDiscord &&
+        existingDiscord.torn_id === tornId
+    ) {
+        db.prepare(`
+            UPDATE verified_users
+            SET verified_at = ?
+            WHERE discord_id = ?
+        `).run(
+            Date.now(),
+            discordId
+        );
+
+        return {
+            success: true,
+            updated: false
+        };
+    }
+
+    /*
+     * User is replacing their old Torn account
+     * with a new valid account/key.
+     */
+    if (existingDiscord) {
+        db.prepare(`
+            UPDATE verified_users
+            SET torn_id = ?, verified_at = ?
+            WHERE discord_id = ?
+        `).run(
+            tornId,
+            Date.now(),
+            discordId
+        );
+
+        return {
+            success: true,
+            updated: true
+        };
+    }
+
+    /*
+     * First verification.
+     */
     db.prepare(`
         INSERT INTO verified_users
         (discord_id, torn_id, verified_at)
@@ -71,17 +120,14 @@ function saveVerifiedUser(discordId, tornId) {
     );
 
     return {
-        success: true
+        success: true,
+        updated: true
     };
-}
-
-function isVerified(discordId) {
-    return Boolean(getVerifiedUser(discordId));
 }
 
 module.exports = {
     getVerifiedUser,
     getDiscordUserByTornId,
-    saveVerifiedUser,
-    isVerified
+    isVerified,
+    saveVerifiedUser
 };
