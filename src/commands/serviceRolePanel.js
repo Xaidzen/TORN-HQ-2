@@ -7,8 +7,11 @@ const {
     PermissionFlagsBits
 } = require('discord.js');
 
-const SERVICES_CHANNEL_ID =
-    process.env.SERVICES_CHANNEL_ID;
+const SERVICE_ROLE_CHANNEL_ID =
+    process.env.SERVICE_ROLE_CHANNEL_ID;
+
+const ORDER_SERVICE_CHANNEL_ID =
+    process.env.ORDER_SERVICE_CHANNEL_ID;
 
 const LOSS_SELLER_ROLE_ID =
     process.env.LOSS_SELLER_ROLE_ID;
@@ -23,61 +26,183 @@ const AGENCY_DETECTIVE_ROLE_ID =
     process.env.AGENCY_DETECTIVE_ROLE_ID;
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('service-role-panel')
-        .setDescription('Open the Torn HQ Service Role Panel.')
-        .setDefaultMemberPermissions(
-            PermissionFlagsBits.Administrator
-        ),
+    data: [
+        new SlashCommandBuilder()
+            .setName('service-role-panel')
+            .setDescription('Open the Torn HQ Service Role Panel.')
+            .setDefaultMemberPermissions(
+                PermissionFlagsBits.Administrator
+            ),
+
+        new SlashCommandBuilder()
+            .setName('order-panel')
+            .setDescription('Open the Torn HQ Order Service panel.')
+            .setDefaultMemberPermissions(
+                PermissionFlagsBits.Administrator
+            )
+    ],
 
     async execute(interaction) {
 
         if (
-            SERVICES_CHANNEL_ID &&
-            interaction.channelId !== SERVICES_CHANNEL_ID
+            interaction.commandName ===
+            'service-role-panel'
         ) {
-            await interaction.reply({
-                content:
-                    'This command can only be used in the #Services channel.',
-                ephemeral: true
-            });
 
-            return;
+            if (
+                SERVICE_ROLE_CHANNEL_ID &&
+                interaction.channelId !==
+                SERVICE_ROLE_CHANNEL_ID
+            ) {
+                return interaction.reply({
+                    content:
+                        'This command can only be used in the Unlock Services channel.',
+                    ephemeral: true
+                });
+            }
+
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0x57F287)
+                    .setTitle('Torn HQ Service')
+                    .setDescription('N/A');
+
+            const row =
+                new ActionRowBuilder()
+                    .addComponents(
+
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'service_loss_seller'
+                            )
+                            .setLabel(
+                                'Loss Seller 🔫'
+                            )
+                            .setStyle(
+                                ButtonStyle.Primary
+                            ),
+
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'service_escape_seller'
+                            )
+                            .setLabel(
+                                'Escape Seller 🏃🏻'
+                            )
+                            .setStyle(
+                                ButtonStyle.Primary
+                            ),
+
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'service_bounty_placer'
+                            )
+                            .setLabel(
+                                'Bounty Placer 🎯'
+                            )
+                            .setStyle(
+                                ButtonStyle.Primary
+                            ),
+
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'service_agency_detective'
+                            )
+                            .setLabel(
+                                'Agency Detective 🕵🏻'
+                            )
+                            .setStyle(
+                                ButtonStyle.Primary
+                            )
+                    );
+
+            return interaction.reply({
+                embeds: [embed],
+                components: [row]
+            });
         }
 
-        const embed = new EmbedBuilder()
-            .setColor(0x57F287)
-            .setTitle('Torn HQ Service')
-            .setDescription('N/A');
+        if (
+            interaction.commandName ===
+            'order-panel'
+        ) {
 
-        const row = new ActionRowBuilder()
-            .addComponents(
+            if (
+                ORDER_SERVICE_CHANNEL_ID &&
+                interaction.channelId !==
+                ORDER_SERVICE_CHANNEL_ID
+            ) {
+                return interaction.reply({
+                    content:
+                        'This command can only be used in the Order Service channel.',
+                    ephemeral: true
+                });
+            }
 
-                new ButtonBuilder()
-                    .setCustomId('service_loss_seller')
-                    .setLabel('Loss Seller 🔫')
-                    .setStyle(ButtonStyle.Primary),
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0x57F287)
+                    .setTitle(
+                        'Torn HQ Order Service'
+                    )
+                    .setDescription(
+                        'Please click the button below what you want to order and patiently wait for the staff to claim the order.'
+                    );
 
-                new ButtonBuilder()
-                    .setCustomId('service_escape_seller')
-                    .setLabel('Escape Seller 🏃🏻')
-                    .setStyle(ButtonStyle.Primary),
+            const row =
+                new ActionRowBuilder()
+                    .addComponents(
 
-                new ButtonBuilder()
-                    .setCustomId('service_bounty_placer')
-                    .setLabel('Bounty Placer 🎯')
-                    .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'order_losses'
+                            )
+                            .setLabel(
+                                'Order Losses'
+                            )
+                            .setStyle(
+                                ButtonStyle.Primary
+                            ),
 
-                new ButtonBuilder()
-                    .setCustomId('service_agency_detective')
-                    .setLabel('Agency Detective 🕵🏻')
-                    .setStyle(ButtonStyle.Primary)
-            );
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'order_escapes'
+                            )
+                            .setLabel(
+                                'Order Escapes'
+                            )
+                            .setStyle(
+                                ButtonStyle.Secondary
+                            ),
 
-        await interaction.reply({
-            embeds: [embed],
-            components: [row]
-        });
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'order_bounties'
+                            )
+                            .setLabel(
+                                'Order Bounties'
+                            )
+                            .setStyle(
+                                ButtonStyle.Secondary
+                            ),
+
+                        new ButtonBuilder()
+                            .setCustomId(
+                                'order_detective'
+                            )
+                            .setLabel(
+                                'Order Detective'
+                            )
+                            .setStyle(
+                                ButtonStyle.Secondary
+                            )
+                    );
+
+            return interaction.reply({
+                embeds: [embed],
+                components: [row]
+            });
+        }
     },
 
     descriptions: {
@@ -95,9 +220,16 @@ module.exports = {
     },
 
     roles: {
-        service_loss_seller: LOSS_SELLER_ROLE_ID,
-        service_escape_seller: ESCAPE_SELLER_ROLE_ID,
-        service_bounty_placer: BOUNTY_PLACER_ROLE_ID,
-        service_agency_detective: AGENCY_DETECTIVE_ROLE_ID
+        service_loss_seller:
+            LOSS_SELLER_ROLE_ID,
+
+        service_escape_seller:
+            ESCAPE_SELLER_ROLE_ID,
+
+        service_bounty_placer:
+            BOUNTY_PLACER_ROLE_ID,
+
+        service_agency_detective:
+            AGENCY_DETECTIVE_ROLE_ID
     }
 };
