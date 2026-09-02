@@ -8,10 +8,18 @@ const VERIFICATION_CHANNEL_ID =
 const ONE_DAY =
     24 * 60 * 60 * 1000;
 
+console.log(
+    'messageCreate.js loaded'
+);
+
 module.exports = {
     name: Events.MessageCreate,
 
     async execute(message) {
+
+        console.log(
+            `Message detected: ${message.author.tag} in ${message.channelId}`
+        );
 
         try {
 
@@ -19,22 +27,48 @@ module.exports = {
                 return;
             }
 
+            if (!VERIFICATION_CHANNEL_ID) {
+
+                console.error(
+                    'VERIFICATION_CHANNEL_ID is missing from .env'
+                );
+
+                return;
+            }
+
             if (
-                !VERIFICATION_CHANNEL_ID ||
                 message.channelId !==
                 VERIFICATION_CHANNEL_ID
             ) {
                 return;
             }
 
-            await message.delete().catch(() => {});
+            console.log(
+                `${message.author.tag} sent a message in the verification channel.`
+            );
 
-            if (
-                !message.member ||
-                !message.member.moderatable
-            ) {
+            await message.delete().catch(error => {
+
                 console.error(
-                    `Cannot timeout ${message.author.tag}`
+                    'Failed to delete message:',
+                    error.message
+                );
+
+            });
+
+            if (!message.member) {
+
+                console.error(
+                    'Could not find Discord member.'
+                );
+
+                return;
+            }
+
+            if (!message.member.moderatable) {
+
+                console.error(
+                    'Bot cannot timeout this member.'
                 );
 
                 return;
@@ -46,13 +80,13 @@ module.exports = {
             );
 
             console.log(
-                `${message.author.tag} was timed out for 1 day in the verification channel.`
+                `${message.author.tag} was timed out for 1 day.`
             );
 
         } catch (error) {
 
             console.error(
-                'Verification channel moderation error:',
+                'Verification moderation error:',
                 error
             );
         }
