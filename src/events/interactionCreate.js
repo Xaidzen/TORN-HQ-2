@@ -4,407 +4,382 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    EmbedBuilder,
-    PermissionsBitField
+    EmbedBuilder
 } = require('discord.js');
 
-const {
-    saveVerifiedUser,
-    isVerified,
-    getDiscordUserByTornId
-} = require('../modules/database');
+const database =
+    require('../modules/database');
 
-const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
-const UNVERIFIED_ROLE_ID = process.env.UNVERIFIED_ROLE_ID;
-const VERIFICATION_CHANNEL_ID = process.env.VERIFICATION_CHANNEL_ID;
+const VERIFICATION_CHANNEL_ID =
+    process.env.VERIFICATION_CHANNEL_ID;
+
+const VERIFIED_ROLE_ID =
+    process.env.VERIFIED_ROLE_ID;
+
+const UNVERIFIED_ROLE_ID =
+    process.env.UNVERIFIED_ROLE_ID;
+
+const SERVICES_CHANNEL_ID =
+    process.env.SERVICES_CHANNEL_ID;
+
+const LOSS_SELLER_ROLE_ID =
+    process.env.LOSS_SELLER_ROLE_ID;
+
+const ESCAPE_SELLER_ROLE_ID =
+    process.env.ESCAPE_SELLER_ROLE_ID;
+
+const BOUNTY_PLACER_ROLE_ID =
+    process.env.BOUNTY_PLACER_ROLE_ID;
+
+const AGENCY_DETECTIVE_ROLE_ID =
+    process.env.AGENCY_DETECTIVE_ROLE_ID;
+
+const CUSTOM_API_KEY_URL =
+    'https://www.torn.com/preferences.php#tab=api?step=addNewKey&user=faction,basic,bounties,discord,personalstats,profile,cooldowns,crimes&torn=attacklog,bounties,crimes&title=Torn%20HQ';
+
+const SERVICE_DATA = {
+
+    service_loss_seller: {
+        roleId: LOSS_SELLER_ROLE_ID,
+        name: 'Loss Seller 🔫',
+        description:
+            'Start a fight with the buyer or target, intentionally lose, then use a Small Aid Kit for 20 minutes or less hospital time, or a First Aid Kit for over 30 minutes. Repeat until you complete the number of losses in your claimed contract.'
+    },
+
+    service_escape_seller: {
+        roleId: ESCAPE_SELLER_ROLE_ID,
+        name: 'Escape Seller 🏃🏻',
+        description:
+            'Coming Soon'
+    },
+
+    service_bounty_placer: {
+        roleId: BOUNTY_PLACER_ROLE_ID,
+        name: 'Bounty Placer 🎯',
+        description:
+            'Once you claim a contract, the target\'s profile link will appear. Place a bounty on the target using the exact contract price. Reminder: Anonymous bounties will not be paid unless the contract is specifically marked as anonymous.'
+    },
+
+    service_agency_detective: {
+        roleId: AGENCY_DETECTIVE_ROLE_ID,
+        name: 'Agency Detective 🕵🏻',
+        description:
+            'Coming Soon'
+    }
+};
 
 module.exports = {
+
     name: Events.InteractionCreate,
 
     async execute(interaction) {
+
         try {
 
             /*
-             * =====================================
              * SLASH COMMANDS
-             * =====================================
              */
 
             if (interaction.isChatInputCommand()) {
+
+                if (
+                    interaction.commandName !== 'verify' &&
+                    !database.isVerified(interaction.user.id)
+                ) {
+
+                    await interaction.reply({
+                        content:
+                            'You must verify your Torn account first.',
+                        ephemeral: true
+                    });
+
+                    return;
+                }
+
                 const command =
                     interaction.client.commands.get(
                         interaction.commandName
                     );
 
-                if (!command) return;
-
-                if (
-                    interaction.commandName !== 'verify' &&
-                    !isVerified(interaction.user.id)
-                ) {
-                    await interaction.reply({
-                        content:
-                            'You must be verified to use this command.',
-                        ephemeral: true
-                    });
-
+                if (!command) {
                     return;
                 }
 
                 await command.execute(interaction);
+
                 return;
             }
 
+
             /*
-             * =====================================
-             * BUTTONS
-             * =====================================
+             * SERVICE ROLE BUTTONS
              */
 
-            if (interaction.isButton()) {
+            if (
+                interaction.isButton() &&
+                SERVICE_DATA[interaction.customId]
+            ) {
 
-                if (
-                    interaction.customId ===
-                    'verify_add_key'
-                ) {
+                const service =
+                    SERVICE_DATA[interaction.customId];
 
-                    if (
-                        VERIFICATION_CHANNEL_ID &&
-                        interaction.channelId !==
-                        VERIFICATION_CHANNEL_ID
-                    ) {
-                        await interaction.reply({
-                            content:
-                                'You can only use verification buttons in the #Enter Verification channel.',
-                            ephemeral: true
-                        });
+                if (!service.roleId) {
 
-                        return;
-                    }
-
-                    const modal =
-                        new ModalBuilder()
-                            .setCustomId(
-                                'verify_api_key_modal'
-                            )
-                            .setTitle(
-                                'Torn HQ Verification'
-                            );
-
-                    const keyInput =
-                        new TextInputBuilder()
-                            .setCustomId(
-                                'torn_api_key'
-                            )
-                            .setLabel(
-                                'API Key'
-                            )
-                            .setPlaceholder(
-                                'Paste your Torn API key here'
-                            )
-                            .setStyle(
-                                TextInputStyle.Short
-                            )
-                            .setRequired(true)
-                            .setMinLength(16)
-                            .setMaxLength(16);
-
-                    modal.addComponents(
-                        new ActionRowBuilder()
-                            .addComponents(keyInput)
-                    );
-
-                    await interaction.showModal(
-                        modal
-                    );
-
-                    return;
-                }
-
-                /*
-                 * YES
-                 */
-
-                if (
-                    interaction.customId ===
-                    'verification_yes'
-                ) {
-
-                    if (
-                        !isVerified(
-                            interaction.user.id
-                        )
-                    ) {
-                        await interaction.reply({
-                            content:
-                                'You must be verified to use this button.',
-                            ephemeral: true
-                        });
-
-                        return;
-                    }
-
-                    const channelsEmbed =
-                        new EmbedBuilder()
-                            .setColor(0x57F287)
-                            .setDescription(
-                                [
-                                    '**TORN HQ SERVER CHANNELS**',
-                                    '',
-                                    'Channel links and descriptions will be added here.'
-                                ].join('\n')
-                            );
-
-                    await interaction.update({
-                        content: '',
-                        embeds: [
-                            channelsEmbed
-                        ],
-                        components: []
-                    });
-
-                    return;
-                }
-
-                /*
-                 * NO
-                 */
-
-                if (
-                    interaction.customId ===
-                    'verification_no'
-                ) {
-
-                    if (
-                        !isVerified(
-                            interaction.user.id
-                        )
-                    ) {
-                        await interaction.reply({
-                            content:
-                                'You must be verified to use this button.',
-                            ephemeral: true
-                        });
-
-                        return;
-                    }
-
-                    await interaction.update({
+                    await interaction.reply({
                         content:
-                            `Have Fun ${interaction.user}! ☺️`,
-                        embeds: [],
-                        components: []
+                            'This service role has not been configured yet.',
+                        ephemeral: true
                     });
 
                     return;
                 }
 
-                /*
-                 * VERIFIED ONLY BUTTONS
-                 */
+                if (!interaction.member) {
+
+                    await interaction.reply({
+                        content:
+                            'Unable to find your server membership.',
+                        ephemeral: true
+                    });
+
+                    return;
+                }
+
+                const role =
+                    interaction.guild.roles.cache.get(
+                        service.roleId
+                    );
+
+                if (!role) {
+
+                    await interaction.reply({
+                        content:
+                            'The service role could not be found.',
+                        ephemeral: true
+                    });
+
+                    return;
+                }
 
                 if (
-                    interaction.customId.startsWith(
-                        'verified_'
+                    interaction.member.roles.cache.has(
+                        service.roleId
                     )
                 ) {
 
-                    if (
-                        !isVerified(
-                            interaction.user.id
-                        )
-                    ) {
-                        await interaction.reply({
-                            content:
-                                'You must be verified to use this button.',
-                            ephemeral: true
-                        });
-
-                        return;
-                    }
+                    await interaction.reply({
+                        content:
+                            `You already have the ${service.name} role.`,
+                        ephemeral: true
+                    });
 
                     return;
                 }
 
+                if (
+                    !interaction.guild.members.me
+                        .permissions.has('ManageRoles')
+                ) {
+
+                    await interaction.reply({
+                        content:
+                            'The bot does not have permission to manage roles.',
+                        ephemeral: true
+                    });
+
+                    return;
+                }
+
+                if (
+                    role.position >=
+                    interaction.guild.members.me.roles.highest.position
+                ) {
+
+                    await interaction.reply({
+                        content:
+                            'I cannot assign this role because it is above or equal to my highest role.',
+                        ephemeral: true
+                    });
+
+                    return;
+                }
+
+                await interaction.member.roles.add(
+                    role,
+                    `Selected ${service.name} service`
+                );
+
+                const embed =
+                    new EmbedBuilder()
+                        .setColor(0x57F287)
+                        .setTitle(service.name)
+                        .setDescription(
+                            service.description
+                        );
+
+                await interaction.reply({
+                    embeds: [embed],
+                    ephemeral: true
+                });
+
                 return;
             }
 
+
             /*
-             * =====================================
+             * VERIFY ADD KEY BUTTON
+             */
+
+            if (
+                interaction.isButton() &&
+                interaction.customId === 'verify_add_key'
+            ) {
+
+                const modal =
+                    new ModalBuilder()
+                        .setCustomId('verify_api_key_modal')
+                        .setTitle('Torn API Key');
+
+                const apiKeyInput =
+                    new TextInputBuilder()
+                        .setCustomId('torn_api_key')
+                        .setLabel('Torn API Key')
+                        .setStyle(
+                            TextInputStyle.Short
+                        )
+                        .setPlaceholder(
+                            'Paste your Torn API key here'
+                        )
+                        .setRequired(true);
+
+                const row =
+                    new ActionRowBuilder()
+                        .addComponents(
+                            apiKeyInput
+                        );
+
+                modal.addComponents(row);
+
+                await interaction.showModal(modal);
+
+                return;
+            }
+
+
+            /*
+             * VERIFY YES BUTTON
+             */
+
+            if (
+                interaction.isButton() &&
+                interaction.customId === 'verify_yes'
+            ) {
+
+                await interaction.update({
+                    content:
+                        'Server channels will be added here later.',
+                    embeds: [],
+                    components: []
+                });
+
+                return;
+            }
+
+
+            /*
+             * VERIFY NO BUTTON
+             */
+
+            if (
+                interaction.isButton() &&
+                interaction.customId === 'verify_no'
+            ) {
+
+                await interaction.update({
+                    content:
+                        `Have Fun ${interaction.user}! ☺️`,
+                    embeds: [],
+                    components: []
+                });
+
+                return;
+            }
+
+
+            /*
              * API KEY MODAL
-             * =====================================
              */
 
-            if (interaction.isModalSubmit()) {
-
-                if (
-                    interaction.customId !==
-                    'verify_api_key_modal'
-                ) {
-                    return;
-                }
-
-                if (
-                    VERIFICATION_CHANNEL_ID &&
-                    interaction.channelId !==
-                    VERIFICATION_CHANNEL_ID
-                ) {
-                    await interaction.reply({
-                        content:
-                            'Verification can only be completed in the #Enter Verification channel.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                const apiKey =
-                    interaction.fields
-                        .getTextInputValue(
-                            'torn_api_key'
-                        )
-                        .trim();
-
-                if (
-                    !/^[A-Za-z0-9]{16}$/.test(
-                        apiKey
-                    )
-                ) {
-                    await interaction.reply({
-                        content:
-                            'Your key is not valid. Please try again.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
+            if (
+                interaction.isModalSubmit() &&
+                interaction.customId === 'verify_api_key_modal'
+            ) {
 
                 await interaction.deferReply({
                     ephemeral: true
                 });
 
-                /*
-                 * =================================
-                 * TORN API
-                 * =================================
-                 */
+                const apiKey =
+                    interaction.fields.getTextInputValue(
+                        'torn_api_key'
+                    ).trim();
 
-                const apiUrl =
-                    'https://api.torn.com/user/' +
-                    '?selections=basic' +
-                    `&key=${encodeURIComponent(apiKey)}`;
-
-                const response =
-                    await fetch(
-                        apiUrl,
-                        {
-                            headers: {
-                                'Accept':
-                                    'application/json',
-                                'User-Agent':
-                                    'Torn-HQ-Discord-Bot'
-                            }
-                        }
-                    );
-
-                if (!response.ok) {
-                    console.error(
-                        'Torn HTTP status:',
-                        response.status
-                    );
+                if (!apiKey) {
 
                     await interaction.editReply({
                         content:
-                            'Torn API could not be reached. Please try again later.'
+                            'Your key is not valid. Please try again.'
                     });
 
                     return;
                 }
+
+                if (apiKey.length < 20) {
+
+                    await interaction.editReply({
+                        content:
+                            'Your key is not valid. Please try again.'
+                    });
+
+                    return;
+                }
+
+                const url =
+                    `https://api.torn.com/user/?selections=basic&key=${encodeURIComponent(apiKey)}`;
+
+                const response =
+                    await fetch(url);
 
                 const data =
                     await response.json();
 
-                /*
-                 * NEVER log the API key.
-                 */
-
-                if (data.error) {
-
-                    console.error(
-                        'Torn API error code:',
-                        data.error.code
-                    );
-
-                    if (
-                        Number(
-                            data.error.code
-                        ) === 2
-                    ) {
-                        await interaction.editReply({
-                            content:
-                                'Your key is not valid. Please try again.'
-                        });
-
-                        return;
-                    }
+                if (
+                    data.error ||
+                    !data.player_id
+                ) {
 
                     await interaction.editReply({
                         content:
-                            'The Torn API could not verify this key. Please try again later.'
+                            'Your key is not valid. Please try again.'
                     });
 
                     return;
                 }
-
-                /*
-                 * =================================
-                 * TORN PLAYER ID
-                 * =================================
-                 */
 
                 const tornId =
-                    data?.player_id;
+                    String(data.player_id);
 
-                if (!tornId) {
-
-                    console.error(
-                        'Torn API did not return player_id.'
-                    );
-
-                    console.error(
-                        'Returned fields:',
-                        Object.keys(data || {})
-                    );
-
-                    await interaction.editReply({
-                        content:
-                            'The key could not be linked to a Torn account. Please try again.'
-                    });
-
-                    return;
-                }
-
-                const normalizedTornId =
-                    String(tornId);
-
-                /*
-                 * =================================
-                 * CHECK EXISTING TORN LINK
-                 * =================================
-                 */
-
-                const existingTornUser =
-                    getDiscordUserByTornId(
-                        normalizedTornId
+                const existing =
+                    database.getDiscordUserByTornId(
+                        tornId
                     );
 
                 if (
-                    existingTornUser &&
-                    existingTornUser.discord_id !==
+                    existing &&
+                    existing.discord_id !==
                     interaction.user.id
                 ) {
+
                     await interaction.editReply({
                         content:
                             'This Torn account is already linked to another Discord account.'
@@ -413,16 +388,17 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * =================================
-                 * GET MEMBER
-                 * =================================
-                 */
+                const result =
+                    database.saveVerifiedUser(
+                        interaction.user.id,
+                        tornId
+                    );
 
-                if (!interaction.guild) {
+                if (!result.success) {
+
                     await interaction.editReply({
                         content:
-                            'Verification must be completed inside the Torn HQ server.'
+                            'This Torn account is already linked to another Discord account.'
                     });
 
                     return;
@@ -433,80 +409,34 @@ module.exports = {
                         interaction.user.id
                     );
 
-                /*
-                 * =================================
-                 * GET VERIFIED ROLE
-                 * =================================
-                 */
-
-                if (!VERIFIED_ROLE_ID) {
-
-                    console.error(
-                        'VERIFIED_ROLE_ID is missing from .env'
+                const verifiedRole =
+                    interaction.guild.roles.cache.get(
+                        VERIFIED_ROLE_ID
                     );
 
-                    await interaction.editReply({
-                        content:
-                            'The VERIFIED role is not configured. Please contact an administrator.'
-                    });
-
-                    return;
-                }
-
-                const verifiedRole =
-                    await interaction.guild.roles.fetch(
-                        VERIFIED_ROLE_ID
+                const unverifiedRole =
+                    interaction.guild.roles.cache.get(
+                        UNVERIFIED_ROLE_ID
                     );
 
                 if (!verifiedRole) {
 
-                    console.error(
-                        'VERIFIED role not found:',
-                        VERIFIED_ROLE_ID
-                    );
-
                     await interaction.editReply({
                         content:
-                            'The VERIFIED role could not be found. Please contact an administrator.'
-                    });
-
-                    return;
-                }
-
-                /*
-                 * =================================
-                 * BOT ROLE CHECK
-                 * =================================
-                 */
-
-                const botMember =
-                    await interaction.guild.members.fetch(
-                        interaction.client.user.id
-                    );
-
-                if (!botMember) {
-
-                    await interaction.editReply({
-                        content:
-                            'I could not find the bot in this server.'
+                            'The VERIFIED role could not be found.'
                     });
 
                     return;
                 }
 
                 if (
-                    !botMember.permissions.has(
-                        PermissionsBitField.Flags.ManageRoles
-                    )
+                    !interaction.guild.members.me
+                        .permissions.has('ManageRoles')
                 ) {
-
-                    console.error(
-                        'Bot is missing Manage Roles permission.'
-                    );
 
                     await interaction.editReply({
                         content:
-                            'I cannot give you the VERIFIED role because I do not have the Manage Roles permission.'
+                            'The bot does not have permission to manage roles.'
                     });
 
                     return;
@@ -514,147 +444,87 @@ module.exports = {
 
                 if (
                     verifiedRole.position >=
-                    botMember.roles.highest.position
+                    interaction.guild.members.me.roles.highest.position
                 ) {
-
-                    console.error(
-                        'VERIFIED role is above or equal to the bot role.'
-                    );
-
-                    console.error(
-                        'VERIFIED role position:',
-                        verifiedRole.position
-                    );
-
-                    console.error(
-                        'Bot role position:',
-                        botMember.roles.highest.position
-                    );
 
                     await interaction.editReply({
                         content:
-                            'I cannot give you the VERIFIED role because my bot role is not higher than the VERIFIED role. Move the bot role above VERIFIED in Server Settings > Roles.'
+                            'The VERIFIED role is above or equal to the bot role.'
                     });
 
                     return;
                 }
 
-                /*
-                 * =================================
-                 * REMOVE UNVERIFIED
-                 * =================================
-                 */
+                await member.roles.add(
+                    verifiedRole,
+                    'Torn account verification'
+                );
 
-                if (
-                    UNVERIFIED_ROLE_ID &&
-                    member.roles.cache.has(
-                        UNVERIFIED_ROLE_ID
-                    )
-                ) {
+                if (unverifiedRole) {
 
-                    try {
-
-                        await member.roles.remove(
-                            UNVERIFIED_ROLE_ID,
-                            'Torn HQ verification successful'
-                        );
-
-                    } catch (error) {
-
-                        console.error(
-                            'Failed to remove UNVERIFIED:',
-                            error
-                        );
-
-                        await interaction.editReply({
-                            content:
-                                'Verification succeeded, but I could not remove your UNVERIFIED role.'
-                        });
-
-                        return;
-                    }
-                }
-
-                /*
-                 * =================================
-                 * ADD VERIFIED
-                 * =================================
-                 */
-
-                if (
-                    !member.roles.cache.has(
-                        VERIFIED_ROLE_ID
-                    )
-                ) {
-
-                    try {
-
-                        await member.roles.add(
-                            verifiedRole,
-                            'Torn HQ verification successful'
-                        );
-
-                    } catch (error) {
-
-                        console.error(
-                            'Failed to add VERIFIED:',
-                            error
-                        );
-
-                        await interaction.editReply({
-                            content:
-                                'Your Torn account was verified, but I could not give you the VERIFIED role. Please contact an administrator.'
-                        });
-
-                        return;
-                    }
-                }
-
-                /*
-                 * =================================
-                 * SAVE LINK
-                 * =================================
-                 */
-
-                const saved =
-                    saveVerifiedUser(
-                        interaction.user.id,
-                        normalizedTornId
+                    await member.roles.remove(
+                        unverifiedRole,
+                        'Torn account verification'
                     );
-
-                if (!saved.success) {
-
-                    if (
-                        saved.reason ===
-                        'torn_account_already_linked'
-                    ) {
-
-                        await interaction.editReply({
-                            content:
-                                'This Torn account is already linked to another Discord account.'
-                        });
-
-                        return;
-                    }
-
-                    await interaction.editReply({
-                        content:
-                            'Verification could not be completed. Please try again.'
-                    });
-
-                    return;
                 }
 
-                /*
-                 * =================================
-                 * SUCCESS
-                 * =================================
-                 */
+                await interaction.editReply({
+                    content:
+                        `Verified Success. Thank you ${interaction.user} for joining Torn HQ!\n\nDo you want me to guide you to the server channels?`,
+                    components: [
+                        new ActionRowBuilder()
+                            .addComponents(
 
-                const successEmbed =
-                    new EmbedBuilder()
-                        .setColor(0x57F287)
-                        .setDescription(
-                            `**Verified Success.** Thank you ${interaction.user} for joining Torn HQ!\n\n` +
-                            'Do you want me to guide you to the server channels?'
-                        
+                                {
+                                    type: 2,
+                                    custom_id: 'verify_yes',
+                                    label: 'Yes',
+                                    style: 3
+                                },
+
+                                {
+                                    type: 2,
+                                    custom_id: 'verify_no',
+                                    label: 'No',
+                                    style: 2
+                                }
+
+                            )
+                    ]
+                });
+
+                return;
+            }
+
+        } catch (error) {
+
+            console.error(
+                'INTERACTION ERROR:',
+                error
+            );
+
+            if (interaction.replied) {
+
+                await interaction.editReply({
+                    content:
+                        'Something went wrong. Please try again.'
+                }).catch(() => {});
+
+            } else if (interaction.deferred) {
+
+                await interaction.editReply({
+                    content:
+                        'Something went wrong. Please try again.'
+                }).catch(() => {});
+
+            } else {
+
+                await interaction.reply({
+                    content:
+                        'Something went wrong. Please try again.',
+                    ephemeral: true
+                }).catch(() => {});
+            }
+        }
+    }
+};
