@@ -11,8 +11,7 @@ const {
     ButtonStyle
 } = require('discord.js');
 
-const database =
-    require('../modules/database');
+const database = require('../modules/database');
 
 const VERIFICATION_CHANNEL_ID =
     process.env.VERIFICATION_CHANNEL_ID;
@@ -23,8 +22,11 @@ const VERIFIED_ROLE_ID =
 const UNVERIFIED_ROLE_ID =
     process.env.UNVERIFIED_ROLE_ID;
 
-const SERVICES_CHANNEL_ID =
-    process.env.SERVICES_CHANNEL_ID;
+const SERVICE_ROLE_CHANNEL_ID =
+    process.env.SERVICE_ROLE_CHANNEL_ID;
+
+const ORDER_SERVICE_CHANNEL_ID =
+    process.env.ORDER_SERVICE_CHANNEL_ID;
 
 const LOSS_SELLER_ROLE_ID =
     process.env.LOSS_SELLER_ROLE_ID;
@@ -50,13 +52,7 @@ const ADMIN_ROLE_ID =
 const CUSTOM_API_KEY_URL =
     'https://www.torn.com/preferences.php#tab=api?step=addNewKey&user=faction,basic,bounties,discord,personalstats,profile,cooldowns,crimes&torn=attacklog,bounties,crimes&title=Torn%20HQ';
 
-
-/*
- * SERVICE ROLE DATA
- */
-
 const SERVICE_DATA = {
-
     service_loss_seller: {
         roleId: LOSS_SELLER_ROLE_ID,
         name: 'Loss Seller 🔫',
@@ -67,8 +63,7 @@ const SERVICE_DATA = {
     service_escape_seller: {
         roleId: ESCAPE_SELLER_ROLE_ID,
         name: 'Escape Seller 🏃🏻',
-        description:
-            'Coming Soon'
+        description: 'Coming Soon'
     },
 
     service_bounty_placer: {
@@ -81,65 +76,18 @@ const SERVICE_DATA = {
     service_agency_detective: {
         roleId: AGENCY_DETECTIVE_ROLE_ID,
         name: 'Agency Detective 🕵🏻',
-        description:
-            'Coming Soon'
+        description: 'Coming Soon'
     }
 };
-
-
-/*
- * ORDER DATA
- */
-
-const ORDER_DATA = {
-
-    order_losses: {
-        type: 'loss',
-        name: 'losses',
-        title: 'Order Losses'
-    },
-
-    order_escapes: {
-        type: 'escape',
-        name: 'escapes',
-        title: 'Order Escapes'
-    },
-
-    order_bounties: {
-        type: 'bounty',
-        name: 'bounties',
-        title: 'Order Bounties'
-    },
-
-    order_detective: {
-        type: 'detective',
-        name: 'detective',
-        title: 'Order Detective'
-    }
-};
-
-
-/*
- * ORDER COUNTER
- *
- * This is kept in memory while the bot is running.
- * A later database version can make the numbers permanent.
- */
 
 const orderCounters = {
     loss: 0,
-    bounty: 0,
     escape: 0,
+    bounty: 0,
     detective: 0
 };
 
-
-/*
- * GET NEXT TICKET NUMBER
- */
-
 function getNextTicketNumber(type) {
-
     orderCounters[type]++;
 
     return String(
@@ -147,13 +95,11 @@ function getNextTicketNumber(type) {
     ).padStart(3, '0');
 }
 
-
-/*
- * CHECK STAFF
- */
+function formatMoney(amount) {
+    return Number(amount).toLocaleString('en-US');
+}
 
 function isStaffOrAdmin(interaction) {
-
     if (!interaction.member) {
         return false;
     }
@@ -188,560 +134,738 @@ function isStaffOrAdmin(interaction) {
     return false;
 }
 
-
-/*
- * FORMAT MONEY
- */
-
-function formatMoney(amount) {
-
-    return Number(amount).toLocaleString(
-        'en-US'
+function isAdministrator(interaction) {
+    return Boolean(
+        interaction.member &&
+        interaction.member.permissions &&
+        interaction.member.permissions.has(
+            PermissionFlagsBits.Administrator
+        )
     );
 }
 
+async function handleVerificationCommand(interaction) {
+    if (
+        VERIFICATION_CHANNEL_ID &&
+        interaction.channelId !==
+        VERIFICATION_CHANNEL_ID
+    ) {
+        await interaction.reply({
+            content:
+                'You can only use `/verify` in the #Enter Verification channel.',
+            ephemeral: true
+        });
 
-module.exports = {
+        return;
+    }
 
-    name: Events.InteractionCreate,
+    const embed =
+        new EmbedBuilder()
+            .setColor(0x57F287)
+            .setDescription(
+                [
+                    '**TORN HQ VERIFICATION**',
+                    '',
+                    '1. Click the link below.',
+                    '',
+                    '2. A key will appear and copy it.',
+                    '',
+                    '3. Paste the key in the Add Key below.'
+                ].join('\n')
+            );
 
-    async execute(interaction) {
+    const row =
+        new ActionRowBuilder()
+            .addComponents(
 
-        try {
+                new ButtonBuilder()
+                    .setLabel('Custom API Key')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(
+                        CUSTOM_API_KEY_URL
+                    ),
 
-            /*
-             * SLASH COMMANDS
-             */
-
-            if (interaction.isChatInputCommand()) {
-
-                if (
-                    interaction.commandName !== 'verify' &&
-                    !database.isVerified(
-                        interaction.user.id
+                new ButtonBuilder()
+                    .setCustomId(
+                        'verify_add_key'
                     )
-                ) {
-
-                    await interaction.reply({
-                        content:
-                            'You must verify your Torn account first.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                const command =
-                    interaction.client.commands.get(
-                        interaction.commandName
-                    );
-
-                if (!command) {
-                    return;
-                }
-
-                await command.execute(
-                    interaction
-                );
-
-                return;
-            }
-
-
-            /*
-             * SERVICE ROLE BUTTONS
-             */
-
-            if (
-                interaction.isButton() &&
-                SERVICE_DATA[interaction.customId]
-            ) {
-
-                const service =
-                    SERVICE_DATA[
-                        interaction.customId
-                    ];
-
-                if (!service.roleId) {
-
-                    await interaction.reply({
-                        content:
-                            'This service role has not been configured yet.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                if (!interaction.member) {
-
-                    await interaction.reply({
-                        content:
-                            'Unable to find your server membership.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                const role =
-                    interaction.guild.roles.cache.get(
-                        service.roleId
-                    );
-
-                if (!role) {
-
-                    await interaction.reply({
-                        content:
-                            'The service role could not be found.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                if (
-                    interaction.member.roles.cache.has(
-                        service.roleId
+                    .setLabel('Add Key')
+                    .setStyle(
+                        ButtonStyle.Success
                     )
-                ) {
-
-                    await interaction.reply({
-                        content:
-                            `You already have the ${service.name} role.`,
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                if (
-                    !interaction.guild.members.me
-                        .permissions.has(
-                            PermissionFlagsBits.ManageRoles
-                        )
-                ) {
-
-                    await interaction.reply({
-                        content:
-                            'The bot does not have permission to manage roles.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                if (
-                    role.position >=
-                    interaction.guild.members.me
-                        .roles.highest.position
-                ) {
-
-                    await interaction.reply({
-                        content:
-                            'I cannot assign this role because it is above or equal to my highest role.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                await interaction.member.roles.add(
-                    role,
-                    `Selected ${service.name} service`
-                );
-
-                const embed =
-                    new EmbedBuilder()
-                        .setColor(0x57F287)
-                        .setTitle(service.name)
-                        .setDescription(
-                            service.description
-                        );
-
-                await interaction.reply({
-                    embeds: [embed],
-                    ephemeral: true
-                });
-
-                return;
-            }
-
-
-            /*
-             * ORDER LOSSES BUTTON
-             */
-
-            if (
-                interaction.isButton() &&
-                interaction.customId === 'order_losses'
-            ) {
-
-                const modal =
-                    new ModalBuilder()
-                        .setCustomId(
-                            'order_losses_modal'
-                        )
-                        .setTitle(
-                            'Order Losses'
-                        );
-
-                const amountInput =
-                    new TextInputBuilder()
-                        .setCustomId(
-                            'loss_amount'
-                        )
-                        .setLabel(
-                            'Amount of losses'
-                        )
-                        .setStyle(
-                            TextInputStyle.Short
-                        )
-                        .setPlaceholder(
-                            'Example: 50'
-                        )
-                        .setRequired(true)
-                        .setMinLength(1)
-                        .setMaxLength(6);
-
-                const row =
-                    new ActionRowBuilder()
-                        .addComponents(
-                            amountInput
-                        );
-
-                modal.addComponents(
-                    row
-                );
-
-                await interaction.showModal(
-                    modal
-                );
-
-                return;
-            }
-
-
-            /*
-             * ORDER ESCAPES
-             */
-
-            if (
-                interaction.isButton() &&
-                interaction.customId === 'order_escapes'
-            ) {
-
-                await interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor(0xFEE75C)
-                            .setTitle(
-                                'Order Escapes'
-                            )
-                            .setDescription(
-                                'Coming Soon'
-                            )
-                    ],
-                    ephemeral: true
-                });
-
-                return;
-            }
-
-
-            /*
-             * ORDER BOUNTIES
-             */
-
-            if (
-                interaction.isButton() &&
-                interaction.customId === 'order_bounties'
-            ) {
-
-                await interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor(0xFEE75C)
-                            .setTitle(
-                                'Order Bounties'
-                            )
-                            .setDescription(
-                                'Coming Soon'
-                            )
-                    ],
-                    ephemeral: true
-                });
-
-                return;
-            }
-
-
-            /*
-             * ORDER DETECTIVE
-             */
-
-            if (
-                interaction.isButton() &&
-                interaction.customId === 'order_detective'
-            ) {
-
-                await interaction.reply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor(0xFEE75C)
-                            .setTitle(
-                                'Order Detective'
-                            )
-                            .setDescription(
-                                'Coming Soon'
-                            )
-                    ],
-                    ephemeral: true
-                });
-
-                return;
-            }
-
-
-            /*
-             * LOSS ORDER MODAL
-             */
-
-            if (
-                interaction.isModalSubmit() &&
-                interaction.customId ===
-                    'order_losses_modal'
-            ) {
-
-                const amount =
-                    Number(
-                        interaction.fields
-                            .getTextInputValue(
-                                'loss_amount'
-                            )
-                            .trim()
-                    );
-
-                if (
-                    !Number.isInteger(amount) ||
-                    amount <= 0
-                ) {
-
-                    await interaction.reply({
-                        content:
-                            'Please enter a valid number of losses.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                const minimumPrice =
-                    325000;
-
-                const price =
-                    amount *
-                    minimumPrice;
-
-                if (!TICKET_CATEGORY_ID) {
-
-                    await interaction.reply({
-                        content:
-                            'The ticket category has not been configured yet.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                const category =
-                    interaction.guild.channels.cache.get(
-                        TICKET_CATEGORY_ID
-                    );
-
-                if (!category) {
-
-                    await interaction.reply({
-                        content:
-                            'The ticket category could not be found.',
-                        ephemeral: true
-                    });
-
-                    return;
-                }
-
-                const number =
-                    getNextTicketNumber(
-                        'loss'
-                    );
-
-                const channelName =
-                    `loss-order-${number}`;
-
-                const ticket =
-                    await interaction.guild.channels.create({
-                        name: channelName,
-                        type: ChannelType.GuildText,
-                        parent: TICKET_CATEGORY_ID,
-
-                        permissionOverwrites: [
-
-                            {
-                                id:
-                                    interaction.guild.id,
-
-                                deny: [
-                                    PermissionFlagsBits.ViewChannel
-                                ]
-                            },
-
-                            {
-                                id:
-                                    interaction.user.id,
-
-                                allow: [
-                                    PermissionFlagsBits.ViewChannel,
-                                    PermissionFlagsBits.SendMessages,
-                                    PermissionFlagsBits.ReadMessageHistory
-                                ]
-                            },
-
-                            ...(STAFF_ROLE_ID ? [{
-                                id: STAFF_ROLE_ID,
-
-                                allow: [
-                                    PermissionFlagsBits.ViewChannel,
-                                    PermissionFlagsBits.SendMessages,
-                                    PermissionFlagsBits.ReadMessageHistory
-                                ]
-                            }] : []),
-
-                            ...(ADMIN_ROLE_ID ? [{
-                                id: ADMIN_ROLE_ID,
-
-                                allow: [
-                                    PermissionFlagsBits.ViewChannel,
-                                    PermissionFlagsBits.SendMessages,
-                                    PermissionFlagsBits.ReadMessageHistory
-                                ]
-                            }] : [])
-                        ]
-                    });
-
-                const staffMention =
-                    STAFF_ROLE_ID
-                        ? `<@&${STAFF_ROLE_ID}>`
-                        : '@staff';
-
-                const adminMention =
-                    ADMIN_ROLE_ID
-                        ? `<@&${ADMIN_ROLE_ID}>`
-                        : '@admin';
-
-                const ticketEmbed =
-                    new EmbedBuilder()
-                        .setColor(0x57F287)
-                        .setTitle(
-                            `${interaction.user} ordered losses`
-                        )
-                        .addFields(
-                            {
-                                name:
-                                    'Amount of losses',
-                                value:
-                                    String(amount),
-                                inline: true
-                            },
-                            {
-                                name:
-                                    'Price',
-                                value:
-                                    `${formatMoney(price)}`,
-                                inline: true
-                            }
-                        )
-                        .setDescription(
-                            'Please patiently wait for the staff to claim your order.'
-                        );
-
-                const buttons =
-                    new ActionRowBuilder()
-                        .addComponents(
-
-                            new ButtonBuilder()
-                                .setCustomId(
-                                    'ticket_claim'
-                                )
-                                .setLabel(
-                                    'Claim'
-                                )
-                                .setStyle(
-                                    ButtonStyle.Success
-                                ),
-
-                            new ButtonBuilder()
-                                .setCustomId(
-                                    'ticket_close'
-                                )
-                                .setLabel(
-                                    'Close'
-                                )
-                                .setStyle(
-                                    ButtonStyle.Danger
-                                )
-                        );
-
-                await ticket.send({
-                    content:
-                        `${staffMention} ${adminMention}`,
-                    embeds: [
-                        ticketEmbed
-                    ],
-                    components: [
-                        buttons
-                    ]
-                });
-
-                await interaction.reply({
-                    content:
-                        `Your order has been created: ${ticket}`,
-                    ephemeral: true
-                });
-
-                return;
-            }
-
-
-            /*
-             * TICKET CLAIM
-             */
-
-            if (
-                interaction.isButton() &&
-                interaction.customId ===
-                    'ticket_claim'
-            ) {
-
-                if (
-                    !isStaffOrAdmin(
-                        interaction
+            );
+
+    await interaction.reply({
+        embeds: [embed],
+        components: [row],
+        ephemeral: true
+    });
+}
+
+async function handleAddKeyButton(interaction) {
+    const modal =
+        new ModalBuilder()
+            .setCustomId(
+                'verify_api_key_modal'
+            )
+            .setTitle(
+                'Add Torn API Key'
+            );
+
+    const input =
+        new TextInputBuilder()
+            .setCustomId(
+                'torn_api_key'
+            )
+            .setLabel(
+                'Torn API Key'
+            )
+            .setStyle(
+                TextInputStyle.Short
+            )
+            .setPlaceholder(
+                'Paste your Torn API key here'
+            )
+            .setRequired(true)
+            .setMinLength(10);
+
+    modal.addComponents(
+        new ActionRowBuilder()
+            .addComponents(input)
+    );
+
+    await interaction.showModal(modal);
+}
+
+async function validateTornApiKey(apiKey) {
+    try {
+        const response = await fetch(
+            `https://api.torn.com/user/?selections=profile&key=${encodeURIComponent(apiKey)}`
+        );
+
+        if (!response.ok) {
+            return {
+                valid: false
+            };
+        }
+
+        const data =
+            await response.json();
+
+        if (
+            !data ||
+            data.error ||
+            !data.player_id
+        ) {
+            return {
+                valid: false
+            };
+        }
+
+        return {
+            valid: true,
+            tornId: String(
+                data.player_id
+            )
+        };
+
+    } catch (error) {
+        console.error(
+            'Torn API verification error:',
+            error
+        );
+
+        return {
+            valid: false
+        };
+    }
+}
+
+async function handleApiKeyModal(interaction) {
+    const apiKey =
+        interaction.fields
+            .getTextInputValue(
+                'torn_api_key'
+            )
+            .trim();
+
+    const result =
+        await validateTornApiKey(apiKey);
+
+    if (!result.valid) {
+
+        await interaction.reply({
+            content:
+                'Your key is not valid. Please try again.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const saveResult =
+        database.saveVerifiedUser(
+            interaction.user.id,
+            result.tornId
+        );
+
+    if (
+        !saveResult.success &&
+        saveResult.reason ===
+            'torn_account_already_linked'
+    ) {
+
+        await interaction.reply({
+            content:
+                'This Torn account is already linked to another Discord account.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    try {
+
+        if (VERIFIED_ROLE_ID) {
+            await interaction.member.roles.add(
+                VERIFIED_ROLE_ID
+            );
+        }
+
+        if (UNVERIFIED_ROLE_ID) {
+            await interaction.member.roles.remove(
+                UNVERIFIED_ROLE_ID
+            );
+        }
+
+    } catch (error) {
+
+        console.error(
+            'Failed to update verification roles:',
+            error
+        );
+
+        await interaction.reply({
+            content:
+                'Your Torn account was verified, but I could not update your Discord roles. Please contact staff.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const embed =
+        new EmbedBuilder()
+            .setColor(0x57F287)
+            .setTitle(
+                'Verified Success'
+            )
+            .setDescription(
+                `Thank you ${interaction.user} for joining Torn HQ!\n\nDo you want me to guide you to the server channels?`
+            );
+
+    const row =
+        new ActionRowBuilder()
+            .addComponents(
+
+                new ButtonBuilder()
+                    .setCustomId(
+                        'verification_yes'
                     )
-                ) {
+                    .setLabel('Yes')
+                    .setStyle(
+                        ButtonStyle.Success
+                    ),
 
-                    await interaction.reply({
-                        content:
-                            'Only staff and administrators can claim tickets.',
-                        ephemeral: true
-                    });
+                new ButtonBuilder()
+                    .setCustomId(
+                        'verification_no'
+                    )
+                    .setLabel('No')
+                    .setStyle(
+                        ButtonStyle.Secondary
+                    )
+            );
 
-                    return;
+    await interaction.reply({
+        embeds: [embed],
+        components: [row],
+        ephemeral: true
+    });
+}
+
+async function handleServiceButton(interaction) {
+    const service =
+        SERVICE_DATA[
+            interaction.customId
+        ];
+
+    if (
+        SERVICE_ROLE_CHANNEL_ID &&
+        interaction.channelId !==
+        SERVICE_ROLE_CHANNEL_ID
+    ) {
+        await interaction.reply({
+            content:
+                'This service panel can only be used in the Unlock Services channel.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    if (!service.roleId) {
+        await interaction.reply({
+            content:
+                'This service role has not been configured yet.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const role =
+        interaction.guild.roles.cache.get(
+            service.roleId
+        );
+
+    if (!role) {
+        await interaction.reply({
+            content:
+                'The service role could not be found.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    if (
+        interaction.member.roles.cache.has(
+            service.roleId
+        )
+    ) {
+        await interaction.reply({
+            content:
+                `You already have the ${service.name} role.`,
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const botMember =
+        interaction.guild.members.me;
+
+    if (!botMember) {
+        await interaction.reply({
+            content:
+                'The bot member could not be found.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    if (
+        !botMember.permissions.has(
+            PermissionFlagsBits.ManageRoles
+        )
+    ) {
+        await interaction.reply({
+            content:
+                'The bot does not have permission to manage roles.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    if (
+        role.position >=
+        botMember.roles.highest.position
+    ) {
+        await interaction.reply({
+            content:
+                'I cannot assign this role because it is above or equal to my highest role.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    await interaction.member.roles.add(
+        role,
+        `Selected ${service.name} service`
+    );
+
+    const embed =
+        new EmbedBuilder()
+            .setColor(0x57F287)
+            .setTitle(
+                service.name
+            )
+            .setDescription(
+                service.description
+            );
+
+    await interaction.reply({
+        embeds: [embed],
+        ephemeral: true
+    });
+}
+
+async function handleOrderLosses(interaction) {
+    if (
+        ORDER_SERVICE_CHANNEL_ID &&
+        interaction.channelId !==
+        ORDER_SERVICE_CHANNEL_ID
+    ) {
+        await interaction.reply({
+            content:
+                'The Order Service panel can only be used in the Order Service channel.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const modal =
+        new ModalBuilder()
+            .setCustomId(
+                'order_losses_modal'
+            )
+            .setTitle(
+                'Order Losses'
+            );
+
+    const amountInput =
+        new TextInputBuilder()
+            .setCustomId(
+                'loss_amount'
+            )
+            .setLabel(
+                'Amount of losses'
+            )
+            .setStyle(
+                TextInputStyle.Short
+            )
+            .setPlaceholder(
+                'Example: 50'
+            )
+            .setRequired(true)
+            .setMinLength(1)
+            .setMaxLength(6);
+
+    modal.addComponents(
+        new ActionRowBuilder()
+            .addComponents(
+                amountInput
+            )
+    );
+
+    await interaction.showModal(
+        modal
+    );
+}
+
+async function handleComingSoon(interaction, title) {
+    await interaction.reply({
+        embeds: [
+            new EmbedBuilder()
+                .setColor(0xFEE75C)
+                .setTitle(title)
+                .setDescription(
+                    'Coming Soon'
+                )
+        ],
+        ephemeral: true
+    });
+}
+
+async function handleLossOrderModal(interaction) {
+    const amount =
+        Number(
+            interaction.fields
+                .getTextInputValue(
+                    'loss_amount'
+                )
+                .trim()
+        );
+
+    if (
+        !Number.isInteger(amount) ||
+        amount <= 0
+    ) {
+        await interaction.reply({
+            content:
+                'Please enter a valid number of losses.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const minimumPrice =
+        325000;
+
+    const price =
+        amount *
+        minimumPrice;
+
+    if (!TICKET_CATEGORY_ID) {
+        await interaction.reply({
+            content:
+                'The ticket category has not been configured yet.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const category =
+        interaction.guild.channels.cache.get(
+            TICKET_CATEGORY_ID
+        );
+
+    if (
+        !category ||
+        category.type !==
+            ChannelType.GuildCategory
+    ) {
+        await interaction.reply({
+            content:
+                'The ticket category could not be found.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const number =
+        getNextTicketNumber(
+            'loss'
+        );
+
+    const channelName =
+        `loss-order-${number}`;
+
+    const permissionOverwrites = [
+        {
+            id: interaction.guild.id,
+            deny: [
+                PermissionFlagsBits.ViewChannel
+            ]
+        },
+        {
+            id: interaction.user.id,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        }
+    ];
+
+    if (STAFF_ROLE_ID) {
+        permissionOverwrites.push({
+            id: STAFF_ROLE_ID,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        });
+    }
+
+    if (ADMIN_ROLE_ID) {
+        permissionOverwrites.push({
+            id: ADMIN_ROLE_ID,
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        });
+    }
+
+    let ticket;
+
+    try {
+
+        ticket =
+            await interaction.guild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                parent: TICKET_CATEGORY_ID,
+                permissionOverwrites
+            });
+
+    } catch (error) {
+
+        console.error(
+            'Failed to create ticket:',
+            error
+        );
+
+        await interaction.reply({
+            content:
+                'I could not create your ticket. Please contact staff.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const staffMention =
+        STAFF_ROLE_ID
+            ? `<@&${STAFF_ROLE_ID}>`
+            : '@staff';
+
+    const adminMention =
+        ADMIN_ROLE_ID
+            ? `<@&${ADMIN_ROLE_ID}>`
+            : '@admin';
+
+    const ticketEmbed =
+        new EmbedBuilder()
+            .setColor(0x57F287)
+            .setTitle(
+                `${interaction.user} ordered losses`
+            )
+            .addFields(
+                {
+                    name:
+                        'Amount of losses',
+                    value:
+                        String(amount),
+                    inline: true
+                },
+                {
+                    name:
+                        'Price',
+                    value:
+                        formatMoney(price),
+                    inline: true
                 }
+            )
+            .setDescription(
+                'Please patiently wait for the staff to claim your order.'
+            );
 
-                const ticketUser =
-                    interaction.channel.permissionOverwrites.cache
-                        .find(
-                            overwrite =>
-                                overwrite.type === 1 &&
-                                overwrite.allow.has(
-                                    PermissionFlagsBits.ViewChannel
-                  
+    const buttons =
+        new ActionRowBuilder()
+            .addComponents(
+
+                new ButtonBuilder()
+                    .setCustomId(
+                        `ticket_claim_${interaction.user.id}`
+                    )
+                    .setLabel('Claim')
+                    .setStyle(
+                        ButtonStyle.Success
+                    ),
+
+                new ButtonBuilder()
+                    .setCustomId(
+                        `ticket_close_${interaction.user.id}`
+                    )
+                    .setLabel('Close')
+                    .setStyle(
+                        ButtonStyle.Danger
+                    )
+            );
+
+    await ticket.send({
+        content:
+            `${staffMention} ${adminMention}`,
+        embeds: [
+            ticketEmbed
+        ],
+        components: [
+            buttons
+        ]
+    });
+
+    await interaction.reply({
+        content:
+            `Your order has been created: ${ticket}`,
+        ephemeral: true
+    });
+}
+
+async function handleTicketClaim(interaction) {
+    if (!isStaffOrAdmin(interaction)) {
+        await interaction.reply({
+            content:
+                'Only staff and administrators can claim tickets.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const parts =
+        interaction.customId.split('_');
+
+    const customerId =
+        parts[2];
+
+    if (!customerId) {
+        await interaction.reply({
+            content:
+                'The ticket owner could not be identified.',
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const customerMention =
+        `<@${customerId}>`;
+
+    const claimantMention =
+        `${interaction.user}`;
+
+    const channel =
+        interaction.channel;
+
+    const messages =
+        await channel.messages.fetch({
+            limit: 20
+        });
+
+    const orderMessage =
+        messages.find(
+            message =>
+                message.author.id ===
+                    interaction.client.user.id &&
+                message.embeds.length > 0 &&
+                message.embeds[0].title &&
+                message.embeds[0].title.includes(
+                    'ordered losses'
+                )
+        );
+
+    if (orderMessage) {
+
+        const embed =
+            EmbedBuilder.from(
+                orderMessage.embeds[0]
+            );
+
+        embed.setDescription(
+            `Your ticket has been claimed by ${claimantMention}. ${customerMention}`
+        );
+
+        await orderMessage.edit({
+            embeds: [embed]
+        });
+
+    } else {
+
+        await channel.send(
+            `Your ticket has been claimed by ${claimantMention}. ${customerMention}`
+        );
+    }
+
+        
