@@ -6,12 +6,14 @@ const {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
-    EmbedBuilder
+    EmbedBuilder,
+    PermissionsBitField
 } = require('discord.js');
 
 const {
     saveVerifiedUser,
-    isVerified
+    isVerified,
+    getDiscordUserByTornId
 } = require('../modules/database');
 
 const VERIFIED_ROLE_ID =
@@ -47,15 +49,13 @@ module.exports = {
 
                 /*
                  * /verify is available to everyone.
-                 *
-                 * Every other command requires
-                 * verification.
+                 * All other commands require verification.
                  */
-
                 if (
                     interaction.commandName !== 'verify' &&
                     !isVerified(interaction.user.id)
                 ) {
+
                     await interaction.reply({
                         content:
                             'You must be verified to use this command.',
@@ -94,6 +94,7 @@ module.exports = {
                         interaction.channelId !==
                         VERIFICATION_CHANNEL_ID
                     ) {
+
                         await interaction.reply({
                             content:
                                 'You can only use verification buttons in the #Enter Verification channel.',
@@ -115,10 +116,10 @@ module.exports = {
                     const warning =
                         new TextInputBuilder()
                             .setCustomId(
-                                'verification_warning'
+                                'warning'
                             )
                             .setLabel(
-                                '⚠️ Do not add your personal information.'
+                                'WARNING: Do not add your personal information.'
                             )
                             .setStyle(
                                 TextInputStyle.Short
@@ -126,7 +127,8 @@ module.exports = {
                             .setPlaceholder(
                                 'Only enter your Torn API key.'
                             )
-                            .setRequired(false);
+                            .setRequired(false)
+                            .setMaxLength(1);
 
                     const keyInput =
                         new TextInputBuilder()
@@ -146,16 +148,17 @@ module.exports = {
                             .setMinLength(16)
                             .setMaxLength(16);
 
+                    /*
+                     * Discord modals require each component
+                     * to be inside its own ActionRow.
+                     */
+
                     modal.addComponents(
                         new ActionRowBuilder()
-                            .addComponents(
-                                warning
-                            ),
+                            .addComponents(warning),
 
                         new ActionRowBuilder()
-                            .addComponents(
-                                keyInput
-                            )
+                            .addComponents(keyInput)
                     );
 
                     await interaction.showModal(
@@ -181,6 +184,7 @@ module.exports = {
                             interaction.user.id
                         )
                     ) {
+
                         await interaction.reply({
                             content:
                                 'You must be verified to use this button.',
@@ -202,6 +206,7 @@ module.exports = {
                             );
 
                     await interaction.update({
+                        content: '',
                         embeds: [
                             channelsEmbed
                         ],
@@ -227,6 +232,7 @@ module.exports = {
                             interaction.user.id
                         )
                     ) {
+
                         await interaction.reply({
                             content:
                                 'You must be verified to use this button.',
@@ -248,7 +254,7 @@ module.exports = {
 
                 /*
                  * =================================
-                 * VERIFIED BUTTONS
+                 * FUTURE VERIFIED BUTTONS
                  * =================================
                  */
 
@@ -263,6 +269,7 @@ module.exports = {
                             interaction.user.id
                         )
                     ) {
+
                         await interaction.reply({
                             content:
                                 'You must be verified to use this button.',
@@ -295,7 +302,7 @@ module.exports = {
 
                 /*
                  * Only allow verification inside
-                 * Enter Verification.
+                 * the Enter Verification channel.
                  */
 
                 if (
@@ -303,6 +310,7 @@ module.exports = {
                     interaction.channelId !==
                     VERIFICATION_CHANNEL_ID
                 ) {
+
                     await interaction.reply({
                         content:
                             'Verification can only be completed in the #Enter Verification channel.',
@@ -324,7 +332,7 @@ module.exports = {
                         .trim();
 
                 /*
-                 * Check API key format.
+                 * Validate basic API key format.
                  */
 
                 if (
@@ -332,6 +340,7 @@ module.exports = {
                         apiKey
                     )
                 ) {
+
                     await interaction.reply({
                         content:
                             'Your key is not valid. Please try again.',
@@ -341,63 +350,47 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * Defer the response while
-                 * contacting Torn.
-                 */
-
                 await interaction.deferReply({
                     ephemeral: true
                 });
 
                 /*
                  * =================================
-                 * TORN API
+                 * VERIFY KEY WITH TORN
                  * =================================
                  *
-                 * The API key is only used here.
-                 * It is NEVER saved to the database.
+                 * We use the User Basic endpoint.
+                 *
+                 * Torn returns:
+                 *
+                 * {
+                 *     "level": 100,
+                 *     "gender": "...",
+                 *     "player_id": 123456,
+                 *     "name": "...",
+                 *     "status": [...]
+                 * }
+                 *
+                 * The API key is NEVER saved.
                  */
 
                 const apiUrl =
-                    'https://api.torn.com/key/' +
-                    '?selections=info' +
+                    'https://api.torn.com/user/' +
+                    '?selections=basic' +
                     `&key=${encodeURIComponent(apiKey)}`;
 
-                let response;
-
-                try {
-
-                    response =
-                        await fetch(
-                            apiUrl,
-                            {
-                                method: 'GET',
-                                headers: {
-                                    'Accept':
-                                        'application/json'
-                                }
+                const response =
+                    await fetch(
+                        apiUrl,
+                        {
+                            headers: {
+                                'Accept':
+                                    'application/json',
+                                'User-Agent':
+                                    'Torn-HQ-Discord-Bot'
                             }
-                        );
-
-                } catch (error) {
-
-                    console.error(
-                        'Torn API connection error:',
-                        error.message
+                        }
                     );
-
-                    await interaction.editReply({
-                        content:
-                            'Torn API could not be reached. Please try again later.'
-                    });
-
-                    return;
-                }
-
-                /*
-                 * HTTP error.
-                 */
 
                 if (!response.ok) {
 
@@ -414,32 +407,14 @@ module.exports = {
                     return;
                 }
 
-                let data;
-
-                try {
-
-                    data =
-                        await response.json();
-
-                } catch (error) {
-
-                    console.error(
-                        'Invalid Torn API response:',
-                        error.message
-                    );
-
-                    await interaction.editReply({
-                        content:
-                            'Torn returned an invalid response. Please try again later.'
-                    });
-
-                    return;
-                }
+                const data =
+                    await response.json();
 
                 /*
-                 * =================================
-                 * TORN API ERROR
-                 * =================================
+                 * IMPORTANT:
+                 * Never log the API key.
+                 *
+                 * We only log the response structure.
                  */
 
                 if (data.error) {
@@ -450,13 +425,15 @@ module.exports = {
                     );
 
                     /*
-                     * Torn error code 2 means
-                     * incorrect API key.
+                     * Error 2 = incorrect API key.
                      */
 
                     if (
-                        Number(data.error.code) === 2
+                        Number(
+                            data.error.code
+                        ) === 2
                     ) {
+
                         await interaction.editReply({
                             content:
                                 'Your key is not valid. Please try again.'
@@ -475,70 +452,24 @@ module.exports = {
 
                 /*
                  * =================================
-                 * FIND TORN ACCOUNT ID
+                 * GET TORN ACCOUNT ID
                  * =================================
-                 *
-                 * Different Torn API responses can
-                 * expose the ID in different places.
                  */
 
-                let tornId = null;
-
-                if (
-                    data &&
-                    data.user &&
-                    typeof data.user === 'object'
-                ) {
-
-                    tornId =
-                        data.user.id ??
-                        data.user.user_id ??
-                        data.user.player_id;
-                }
+                const tornId =
+                    data?.player_id;
 
                 if (!tornId) {
-                    tornId =
-                        data?.user_id ??
-                        data?.player_id ??
-                        data?.id;
-                }
-
-                /*
-                 * Some responses may return the
-                 * account information inside another
-                 * object.
-                 */
-
-                if (
-                    !tornId &&
-                    data?.user &&
-                    typeof data.user === 'string'
-                ) {
-                    tornId =
-                        data.user;
-                }
-
-                /*
-                 * =================================
-                 * NO TORN ID
-                 * =================================
-                 */
-
-                if (!tornId) {
-
-                    /*
-                     * Do NOT print the complete API
-                     * response because it could contain
-                     * sensitive information.
-                     */
 
                     console.error(
-                        'Torn verification succeeded, but no Torn account ID was found.'
+                        'Torn API did not return player_id.'
                     );
 
                     console.error(
-                        'Returned top-level fields:',
-                        Object.keys(data || {})
+                        'Torn response fields:',
+                        Object.keys(
+                            data || {}
+                        )
                     );
 
                     await interaction.editReply({
@@ -549,49 +480,32 @@ module.exports = {
                     return;
                 }
 
-                tornId =
+                const normalizedTornId =
                     String(tornId);
 
                 /*
                  * =================================
-                 * DATABASE
+                 * CHECK EXISTING TORN LINK
                  * =================================
                  *
-                 * Only Discord ID, Torn ID and
-                 * verification timestamp are saved.
-                 *
-                 * API KEY IS NOT SAVED.
+                 * One Torn account can only belong
+                 * to one Discord account.
                  */
 
-                const saved =
-                    saveVerifiedUser(
-                        interaction.user.id,
-                        tornId
+                const existingTornUser =
+                    getDiscordUserByTornId(
+                        normalizedTornId
                     );
 
-                if (!saved.success) {
-
-                    /*
-                     * Torn account already belongs
-                     * to another Discord account.
-                     */
-
-                    if (
-                        saved.reason ===
-                        'torn_account_already_linked'
-                    ) {
-
-                        await interaction.editReply({
-                            content:
-                                'This Torn account is already linked to another Discord account.'
-                        });
-
-                        return;
-                    }
+                if (
+                    existingTornUser &&
+                    existingTornUser.discord_id !==
+                    interaction.user.id
+                ) {
 
                     await interaction.editReply({
                         content:
-                            'Verification could not be completed. Please try again.'
+                            'This Torn account is already linked to another Discord account.'
                     });
 
                     return;
@@ -599,12 +513,25 @@ module.exports = {
 
                 /*
                  * =================================
-                 * DISCORD MEMBER
+                 * GET SERVER MEMBER
                  * =================================
                  */
 
+                if (!interaction.guild) {
+
+                    await interaction.editReply({
+                        content:
+                            'Verification must be completed inside the Torn HQ server.'
+                    });
+
+                    return;
+                }
+
                 const member =
-                    interaction.member;
+                    await interaction.guild.members
+                        .fetch(
+                            interaction.user.id
+                        );
 
                 if (!member) {
 
@@ -618,66 +545,129 @@ module.exports = {
 
                 /*
                  * =================================
-                 * REMOVE UNVERIFIED ROLE
+                 * GET VERIFIED ROLE
+                 * =================================
+                 */
+
+                if (!VERIFIED_ROLE_ID) {
+
+                    console.error(
+                        'VERIFIED_ROLE_ID is missing from .env'
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            'The VERIFIED role is not configured yet. Please contact an administrator.'
+                    });
+
+                    return;
+                }
+
+                const verifiedRole =
+                    await interaction.guild.roles
+                        .fetch(
+                            VERIFIED_ROLE_ID
+                        );
+
+                if (!verifiedRole) {
+
+                    console.error(
+                        'VERIFIED role was not found:',
+                        VERIFIED_ROLE_ID
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            'The VERIFIED role could not be found. Please contact an administrator.'
+                    });
+
+                    return;
+                }
+
+                /*
+                 * =================================
+                 * CHECK BOT PERMISSIONS
+                 * =================================
+                 */
+
+                const botMember =
+                    await interaction.guild.members
+                        .fetch(
+                            interaction.client.user.id
+                        );
+
+                if (!botMember) {
+
+                    await interaction.editReply({
+                        content:
+                            'I could not find my bot member in this server.'
+                    });
+
+                    return;
+                }
+
+                /*
+                 * Bot needs Manage Roles.
+                 */
+
+                if (
+                    !botMember.permissions.has(
+                        PermissionsBitField.Flags.ManageRoles
+                    )
+                ) {
+
+                    console.error(
+                        'Bot is missing Manage Roles permission.'
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            'I cannot give you the VERIFIED role because I do not have the Manage Roles permission.'
+                    });
+
+                    return;
+                }
+
+                /*
+                 * Discord requires the bot's highest
+                 * role to be above the role it is trying
+                 * to manage.
+                 */
+
+                if (
+                    verifiedRole.position >=
+                    botMember.roles.highest.position
+                ) {
+
+                    console.error(
+                        'VERIFIED role is not below the bot role.'
+                    );
+
+                    console.error(
+                        'VERIFIED role position:',
+                        verifiedRole.position
+                    );
+
+                    console.error(
+                        'Bot highest role position:',
+                        botMember.roles.highest.position
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            'I cannot give you the VERIFIED role because my bot role is not higher than the VERIFIED role. Move the bot role above VERIFIED in Server Settings > Roles.'
+                    });
+
+                    return;
+                }
+
+                /*
+                 * =================================
+                 * REMOVE UNVERIFIED
                  * =================================
                  */
 
                 if (
                     UNVERIFIED_ROLE_ID &&
                     member.roles.cache.has(
-                        UNVERIFIED_ROLE_ID
-                    )
-                ) {
-
-                    try {
-
-                        await member.roles.remove(
-                            UNVERIFIED_ROLE_ID
-                        );
-
-                    } catch (error) {
-
-                        console.error(
-                            'Failed to remove UNVERIFIED role:',
-                            error.message
-                        );
-                    }
-                }
-
-                /*
-                 * =================================
-                 * GIVE VERIFIED ROLE
-                 * =================================
-                 */
-
-                if (
-                    VERIFIED_ROLE_ID &&
-                    !member.roles.cache.has(
-                        VERIFIED_ROLE_ID
-                    )
-                ) {
-
-                    try {
-
-                        await member.roles.add(
-                            VERIFIED_ROLE_ID
-                        );
-
-                    } catch (error) {
-
-                        console.error(
-                            'Failed to add VERIFIED role:',
-                            error.message
-                        );
-
-                        await interaction.editReply({
-                            content:
-                                'Your Torn account was verified, but I could not give you the VERIFIED role. Please contact a server administrator.'
-                        });
-
-                        return;
-                    }
-                }
-
-                /*
-                 * ==========================
+                        
