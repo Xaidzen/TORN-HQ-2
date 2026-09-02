@@ -16,20 +16,14 @@ const {
     getDiscordUserByTornId
 } = require('../modules/database');
 
-const VERIFIED_ROLE_ID =
-    process.env.VERIFIED_ROLE_ID;
-
-const UNVERIFIED_ROLE_ID =
-    process.env.UNVERIFIED_ROLE_ID;
-
-const VERIFICATION_CHANNEL_ID =
-    process.env.VERIFICATION_CHANNEL_ID;
+const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
+const UNVERIFIED_ROLE_ID = process.env.UNVERIFIED_ROLE_ID;
+const VERIFICATION_CHANNEL_ID = process.env.VERIFICATION_CHANNEL_ID;
 
 module.exports = {
     name: Events.InteractionCreate,
 
     async execute(interaction) {
-
         try {
 
             /*
@@ -39,7 +33,6 @@ module.exports = {
              */
 
             if (interaction.isChatInputCommand()) {
-
                 const command =
                     interaction.client.commands.get(
                         interaction.commandName
@@ -47,15 +40,10 @@ module.exports = {
 
                 if (!command) return;
 
-                /*
-                 * /verify is available to everyone.
-                 * All other commands require verification.
-                 */
                 if (
                     interaction.commandName !== 'verify' &&
                     !isVerified(interaction.user.id)
                 ) {
-
                     await interaction.reply({
                         content:
                             'You must be verified to use this command.',
@@ -66,7 +54,6 @@ module.exports = {
                 }
 
                 await command.execute(interaction);
-
                 return;
             }
 
@@ -78,12 +65,6 @@ module.exports = {
 
             if (interaction.isButton()) {
 
-                /*
-                 * =================================
-                 * ADD KEY
-                 * =================================
-                 */
-
                 if (
                     interaction.customId ===
                     'verify_add_key'
@@ -94,7 +75,6 @@ module.exports = {
                         interaction.channelId !==
                         VERIFICATION_CHANNEL_ID
                     ) {
-
                         await interaction.reply({
                             content:
                                 'You can only use verification buttons in the #Enter Verification channel.',
@@ -112,23 +92,6 @@ module.exports = {
                             .setTitle(
                                 'Torn HQ Verification'
                             );
-
-                    const warning =
-                        new TextInputBuilder()
-                            .setCustomId(
-                                'warning'
-                            )
-                            .setLabel(
-                                'WARNING: Do not add your personal information.'
-                            )
-                            .setStyle(
-                                TextInputStyle.Short
-                            )
-                            .setPlaceholder(
-                                'Only enter your Torn API key.'
-                            )
-                            .setRequired(false)
-                            .setMaxLength(1);
 
                     const keyInput =
                         new TextInputBuilder()
@@ -148,15 +111,7 @@ module.exports = {
                             .setMinLength(16)
                             .setMaxLength(16);
 
-                    /*
-                     * Discord modals require each component
-                     * to be inside its own ActionRow.
-                     */
-
                     modal.addComponents(
-                        new ActionRowBuilder()
-                            .addComponents(warning),
-
                         new ActionRowBuilder()
                             .addComponents(keyInput)
                     );
@@ -169,9 +124,7 @@ module.exports = {
                 }
 
                 /*
-                 * =================================
                  * YES
-                 * =================================
                  */
 
                 if (
@@ -184,7 +137,6 @@ module.exports = {
                             interaction.user.id
                         )
                     ) {
-
                         await interaction.reply({
                             content:
                                 'You must be verified to use this button.',
@@ -217,9 +169,7 @@ module.exports = {
                 }
 
                 /*
-                 * =================================
                  * NO
-                 * =================================
                  */
 
                 if (
@@ -232,7 +182,6 @@ module.exports = {
                             interaction.user.id
                         )
                     ) {
-
                         await interaction.reply({
                             content:
                                 'You must be verified to use this button.',
@@ -253,9 +202,7 @@ module.exports = {
                 }
 
                 /*
-                 * =================================
-                 * FUTURE VERIFIED BUTTONS
-                 * =================================
+                 * VERIFIED ONLY BUTTONS
                  */
 
                 if (
@@ -269,7 +216,6 @@ module.exports = {
                             interaction.user.id
                         )
                     ) {
-
                         await interaction.reply({
                             content:
                                 'You must be verified to use this button.',
@@ -300,17 +246,11 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * Only allow verification inside
-                 * the Enter Verification channel.
-                 */
-
                 if (
                     VERIFICATION_CHANNEL_ID &&
                     interaction.channelId !==
                     VERIFICATION_CHANNEL_ID
                 ) {
-
                     await interaction.reply({
                         content:
                             'Verification can only be completed in the #Enter Verification channel.',
@@ -320,10 +260,6 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * Get API key.
-                 */
-
                 const apiKey =
                     interaction.fields
                         .getTextInputValue(
@@ -331,16 +267,11 @@ module.exports = {
                         )
                         .trim();
 
-                /*
-                 * Validate basic API key format.
-                 */
-
                 if (
                     !/^[A-Za-z0-9]{16}$/.test(
                         apiKey
                     )
                 ) {
-
                     await interaction.reply({
                         content:
                             'Your key is not valid. Please try again.',
@@ -356,22 +287,8 @@ module.exports = {
 
                 /*
                  * =================================
-                 * VERIFY KEY WITH TORN
+                 * TORN API
                  * =================================
-                 *
-                 * We use the User Basic endpoint.
-                 *
-                 * Torn returns:
-                 *
-                 * {
-                 *     "level": 100,
-                 *     "gender": "...",
-                 *     "player_id": 123456,
-                 *     "name": "...",
-                 *     "status": [...]
-                 * }
-                 *
-                 * The API key is NEVER saved.
                  */
 
                 const apiUrl =
@@ -393,9 +310,8 @@ module.exports = {
                     );
 
                 if (!response.ok) {
-
                     console.error(
-                        'Torn API HTTP status:',
+                        'Torn HTTP status:',
                         response.status
                     );
 
@@ -411,10 +327,7 @@ module.exports = {
                     await response.json();
 
                 /*
-                 * IMPORTANT:
-                 * Never log the API key.
-                 *
-                 * We only log the response structure.
+                 * NEVER log the API key.
                  */
 
                 if (data.error) {
@@ -424,16 +337,11 @@ module.exports = {
                         data.error.code
                     );
 
-                    /*
-                     * Error 2 = incorrect API key.
-                     */
-
                     if (
                         Number(
                             data.error.code
                         ) === 2
                     ) {
-
                         await interaction.editReply({
                             content:
                                 'Your key is not valid. Please try again.'
@@ -452,7 +360,7 @@ module.exports = {
 
                 /*
                  * =================================
-                 * GET TORN ACCOUNT ID
+                 * TORN PLAYER ID
                  * =================================
                  */
 
@@ -466,10 +374,8 @@ module.exports = {
                     );
 
                     console.error(
-                        'Torn response fields:',
-                        Object.keys(
-                            data || {}
-                        )
+                        'Returned fields:',
+                        Object.keys(data || {})
                     );
 
                     await interaction.editReply({
@@ -487,9 +393,6 @@ module.exports = {
                  * =================================
                  * CHECK EXISTING TORN LINK
                  * =================================
-                 *
-                 * One Torn account can only belong
-                 * to one Discord account.
                  */
 
                 const existingTornUser =
@@ -502,7 +405,6 @@ module.exports = {
                     existingTornUser.discord_id !==
                     interaction.user.id
                 ) {
-
                     await interaction.editReply({
                         content:
                             'This Torn account is already linked to another Discord account.'
@@ -513,12 +415,11 @@ module.exports = {
 
                 /*
                  * =================================
-                 * GET SERVER MEMBER
+                 * GET MEMBER
                  * =================================
                  */
 
                 if (!interaction.guild) {
-
                     await interaction.editReply({
                         content:
                             'Verification must be completed inside the Torn HQ server.'
@@ -528,20 +429,9 @@ module.exports = {
                 }
 
                 const member =
-                    await interaction.guild.members
-                        .fetch(
-                            interaction.user.id
-                        );
-
-                if (!member) {
-
-                    await interaction.editReply({
-                        content:
-                            'I could not find your server membership.'
-                    });
-
-                    return;
-                }
+                    await interaction.guild.members.fetch(
+                        interaction.user.id
+                    );
 
                 /*
                  * =================================
@@ -557,22 +447,21 @@ module.exports = {
 
                     await interaction.editReply({
                         content:
-                            'The VERIFIED role is not configured yet. Please contact an administrator.'
+                            'The VERIFIED role is not configured. Please contact an administrator.'
                     });
 
                     return;
                 }
 
                 const verifiedRole =
-                    await interaction.guild.roles
-                        .fetch(
-                            VERIFIED_ROLE_ID
-                        );
+                    await interaction.guild.roles.fetch(
+                        VERIFIED_ROLE_ID
+                    );
 
                 if (!verifiedRole) {
 
                     console.error(
-                        'VERIFIED role was not found:',
+                        'VERIFIED role not found:',
                         VERIFIED_ROLE_ID
                     );
 
@@ -586,29 +475,24 @@ module.exports = {
 
                 /*
                  * =================================
-                 * CHECK BOT PERMISSIONS
+                 * BOT ROLE CHECK
                  * =================================
                  */
 
                 const botMember =
-                    await interaction.guild.members
-                        .fetch(
-                            interaction.client.user.id
-                        );
+                    await interaction.guild.members.fetch(
+                        interaction.client.user.id
+                    );
 
                 if (!botMember) {
 
                     await interaction.editReply({
                         content:
-                            'I could not find my bot member in this server.'
+                            'I could not find the bot in this server.'
                     });
 
                     return;
                 }
-
-                /*
-                 * Bot needs Manage Roles.
-                 */
 
                 if (
                     !botMember.permissions.has(
@@ -628,19 +512,13 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * Discord requires the bot's highest
-                 * role to be above the role it is trying
-                 * to manage.
-                 */
-
                 if (
                     verifiedRole.position >=
                     botMember.roles.highest.position
                 ) {
 
                     console.error(
-                        'VERIFIED role is not below the bot role.'
+                        'VERIFIED role is above or equal to the bot role.'
                     );
 
                     console.error(
@@ -649,7 +527,7 @@ module.exports = {
                     );
 
                     console.error(
-                        'Bot highest role position:',
+                        'Bot role position:',
                         botMember.roles.highest.position
                     );
 
@@ -670,4 +548,113 @@ module.exports = {
                 if (
                     UNVERIFIED_ROLE_ID &&
                     member.roles.cache.has(
+                        UNVERIFIED_ROLE_ID
+                    )
+                ) {
+
+                    try {
+
+                        await member.roles.remove(
+                            UNVERIFIED_ROLE_ID,
+                            'Torn HQ verification successful'
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            'Failed to remove UNVERIFIED:',
+                            error
+                        );
+
+                        await interaction.editReply({
+                            content:
+                                'Verification succeeded, but I could not remove your UNVERIFIED role.'
+                        });
+
+                        return;
+                    }
+                }
+
+                /*
+                 * =================================
+                 * ADD VERIFIED
+                 * =================================
+                 */
+
+                if (
+                    !member.roles.cache.has(
+                        VERIFIED_ROLE_ID
+                    )
+                ) {
+
+                    try {
+
+                        await member.roles.add(
+                            verifiedRole,
+                            'Torn HQ verification successful'
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            'Failed to add VERIFIED:',
+                            error
+                        );
+
+                        await interaction.editReply({
+                            content:
+                                'Your Torn account was verified, but I could not give you the VERIFIED role. Please contact an administrator.'
+                        });
+
+                        return;
+                    }
+                }
+
+                /*
+                 * =================================
+                 * SAVE LINK
+                 * =================================
+                 */
+
+                const saved =
+                    saveVerifiedUser(
+                        interaction.user.id,
+                        normalizedTornId
+                    );
+
+                if (!saved.success) {
+
+                    if (
+                        saved.reason ===
+                        'torn_account_already_linked'
+                    ) {
+
+                        await interaction.editReply({
+                            content:
+                                'This Torn account is already linked to another Discord account.'
+                        });
+
+                        return;
+                    }
+
+                    await interaction.editReply({
+                        content:
+                            'Verification could not be completed. Please try again.'
+                    });
+
+                    return;
+                }
+
+                /*
+                 * =================================
+                 * SUCCESS
+                 * =================================
+                 */
+
+                const successEmbed =
+                    new EmbedBuilder()
+                        .setColor(0x57F287)
+                        .setDescription(
+                            `**Verified Success.** Thank you ${interaction.user} for joining Torn HQ!\n\n` +
+                            'Do you want me to guide you to the server channels?'
                         
