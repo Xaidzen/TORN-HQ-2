@@ -5,10 +5,10 @@ const {
     TextInputStyle,
     ActionRowBuilder,
     EmbedBuilder,
-    PermissionFlagsBits,
-    ChannelType,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    PermissionFlagsBits,
+    ChannelType
 } = require('discord.js');
 
 const database = require('../modules/database');
@@ -22,11 +22,14 @@ const VERIFIED_ROLE_ID =
 const UNVERIFIED_ROLE_ID =
     process.env.UNVERIFIED_ROLE_ID;
 
-const SERVICE_ROLE_CHANNEL_ID =
-    process.env.SERVICE_ROLE_CHANNEL_ID;
+const TICKET_CATEGORY_ID =
+    process.env.TICKET_CATEGORY_ID;
 
-const ORDER_SERVICE_CHANNEL_ID =
-    process.env.ORDER_SERVICE_CHANNEL_ID;
+const STAFF_ROLE_ID =
+    process.env.STAFF_ROLE_ID;
+
+const ADMIN_ROLE_ID =
+    process.env.ADMIN_ROLE_ID;
 
 const LOSS_SELLER_ROLE_ID =
     process.env.LOSS_SELLER_ROLE_ID;
@@ -40,693 +43,181 @@ const BOUNTY_PLACER_ROLE_ID =
 const AGENCY_DETECTIVE_ROLE_ID =
     process.env.AGENCY_DETECTIVE_ROLE_ID;
 
-const TICKET_CATEGORY_ID =
-    process.env.TICKET_CATEGORY_ID;
+const TORN_API_URL =
+    'https://api.torn.com/user/?selections=profile&key=';
 
-const STAFF_ROLE_ID =
-    process.env.STAFF_ROLE_ID;
+const LOSS_PRICE = 325000;
 
-const ADMIN_ROLE_ID =
-    process.env.ADMIN_ROLE_ID;
+const SERVICE_DESCRIPTIONS = {
+    service_loss_seller:
+        'Start a fight with the buyer or target, intentionally lose, then use a Small Aid Kit for 20 minutes or less hospital time, or a First Aid Kit for over 30 minutes. Repeat until you complete the number of losses in your claimed contract.',
 
-const CUSTOM_API_KEY_URL =
-    'https://www.torn.com/preferences.php#tab=api?step=addNewKey&user=faction,basic,bounties,discord,personalstats,profile,cooldowns,crimes&torn=attacklog,bounties,crimes&title=Torn%20HQ';
+    service_escape_seller:
+        'Coming Soon',
 
-const SERVICE_DATA = {
-    service_loss_seller: {
-        roleId: LOSS_SELLER_ROLE_ID,
-        name: 'Loss Seller 🔫',
-        description:
-            'Start a fight with the buyer or target, intentionally lose, then use a Small Aid Kit for 20 minutes or less hospital time, or a First Aid Kit for over 30 minutes. Repeat until you complete the number of losses in your claimed contract.'
-    },
+    service_bounty_placer:
+        'Once you claim a contract, the target\'s profile link will appear. Place a bounty on the target using the exact contract price. Reminder: Anonymous bounties will not be paid unless the contract is specifically marked as anonymous.',
 
-    service_escape_seller: {
-        roleId: ESCAPE_SELLER_ROLE_ID,
-        name: 'Escape Seller 🏃🏻',
-        description: 'Coming Soon'
-    },
-
-    service_bounty_placer: {
-        roleId: BOUNTY_PLACER_ROLE_ID,
-        name: 'Bounty Placer 🎯',
-        description:
-            'Once you claim a contract, the target\'s profile link will appear. Place a bounty on the target using the exact contract price. Reminder: Anonymous bounties will not be paid unless the contract is specifically marked as anonymous.'
-    },
-
-    service_agency_detective: {
-        roleId: AGENCY_DETECTIVE_ROLE_ID,
-        name: 'Agency Detective 🕵🏻',
-        description: 'Coming Soon'
-    }
+    service_agency_detective:
+        'Coming Soon'
 };
 
-const orderCounters = {
-    loss: 0,
-    escape: 0,
-    bounty: 0,
-    detective: 0
+const SERVICE_ROLES = {
+    service_loss_seller:
+        LOSS_SELLER_ROLE_ID,
+
+    service_escape_seller:
+        ESCAPE_SELLER_ROLE_ID,
+
+    service_bounty_placer:
+        BOUNTY_PLACER_ROLE_ID,
+
+    service_agency_detective:
+        AGENCY_DETECTIVE_ROLE_ID
 };
 
-function getNextTicketNumber(type) {
-    orderCounters[type]++;
-
-    return String(
-        orderCounters[type]
-    ).padStart(3, '0');
-}
-
-function formatMoney(amount) {
-    return Number(amount).toLocaleString('en-US');
-}
-
-function isStaffOrAdmin(interaction) {
-    if (!interaction.member) {
+function isStaffOrAdmin(member) {
+    if (!member) {
         return false;
     }
 
-    if (
-        interaction.member.permissions &&
-        interaction.member.permissions.has(
-            PermissionFlagsBits.Administrator
-        )
-    ) {
-        return true;
-    }
-
-    if (
-        STAFF_ROLE_ID &&
-        interaction.member.roles.cache.has(
-            STAFF_ROLE_ID
-        )
-    ) {
-        return true;
-    }
-
-    if (
-        ADMIN_ROLE_ID &&
-        interaction.member.roles.cache.has(
-            ADMIN_ROLE_ID
-        )
-    ) {
-        return true;
-    }
-
-    return false;
-}
-
-function isAdministrator(interaction) {
-    return Boolean(
-        interaction.member &&
-        interaction.member.permissions &&
-        interaction.member.permissions.has(
+    return (
+        member.roles.cache.has(STAFF_ROLE_ID) ||
+        member.roles.cache.has(ADMIN_ROLE_ID) ||
+        member.permissions.has(
             PermissionFlagsBits.Administrator
         )
     );
 }
 
-async function handleVerificationCommand(interaction) {
+function getTicketType(interaction) {
     if (
-        VERIFICATION_CHANNEL_ID &&
-        interaction.channelId !==
-        VERIFICATION_CHANNEL_ID
+        interaction.channel &&
+        interaction.channel.topic
     ) {
-        await interaction.reply({
-            content:
-                'You can only use `/verify` in the #Enter Verification channel.',
-            ephemeral: true
-        });
-
-        return;
+        return interaction.channel.topic;
     }
 
-    const embed =
-        new EmbedBuilder()
-            .setColor(0x57F287)
-            .setDescription(
-                [
-                    '**TORN HQ VERIFICATION**',
-                    '',
-                    '1. Click the link below.',
-                    '',
-                    '2. A key will appear and copy it.',
-                    '',
-                    '3. Paste the key in the Add Key below.'
-                ].join('\n')
-            );
-
-    const row =
-        new ActionRowBuilder()
-            .addComponents(
-
-                new ButtonBuilder()
-                    .setLabel('Custom API Key')
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(
-                        CUSTOM_API_KEY_URL
-                    ),
-
-                new ButtonBuilder()
-                    .setCustomId(
-                        'verify_add_key'
-                    )
-                    .setLabel('Add Key')
-                    .setStyle(
-                        ButtonStyle.Success
-                    )
-            );
-
-    await interaction.reply({
-        embeds: [embed],
-        components: [row],
-        ephemeral: true
-    });
+    return null;
 }
 
-async function handleAddKeyButton(interaction) {
-    const modal =
-        new ModalBuilder()
-            .setCustomId(
-                'verify_api_key_modal'
-            )
-            .setTitle(
-                'Add Torn API Key'
-            );
+function getTicketPrefix(type) {
+    const prefixes = {
+        losses: 'loss-order',
+        escapes: 'escape-order',
+        bounties: 'bounty-order',
+        detective: 'detective-order'
+    };
 
-    const input =
-        new TextInputBuilder()
-            .setCustomId(
-                'torn_api_key'
-            )
-            .setLabel(
-                'Torn API Key'
-            )
-            .setStyle(
-                TextInputStyle.Short
-            )
-            .setPlaceholder(
-                'Paste your Torn API key here'
-            )
-            .setRequired(true)
-            .setMinLength(10);
-
-    modal.addComponents(
-        new ActionRowBuilder()
-            .addComponents(input)
-    );
-
-    await interaction.showModal(modal);
+    return prefixes[type];
 }
 
-async function validateTornApiKey(apiKey) {
-    try {
-        const response = await fetch(
-            `https://api.torn.com/user/?selections=profile&key=${encodeURIComponent(apiKey)}`
+async function getNextTicketNumber(guild, prefix) {
+    const channels =
+        guild.channels.cache.filter(channel =>
+            channel.name.startsWith(`${prefix}-`)
         );
 
-        if (!response.ok) {
-            return {
-                valid: false
-            };
-        }
+    let highest = 0;
 
-        const data =
-            await response.json();
+    for (const channel of channels.values()) {
 
-        if (
-            !data ||
-            data.error ||
-            !data.player_id
-        ) {
-            return {
-                valid: false
-            };
-        }
-
-        return {
-            valid: true,
-            tornId: String(
-                data.player_id
-            )
-        };
-
-    } catch (error) {
-        console.error(
-            'Torn API verification error:',
-            error
-        );
-
-        return {
-            valid: false
-        };
-    }
-}
-
-async function handleApiKeyModal(interaction) {
-    const apiKey =
-        interaction.fields
-            .getTextInputValue(
-                'torn_api_key'
-            )
-            .trim();
-
-    const result =
-        await validateTornApiKey(apiKey);
-
-    if (!result.valid) {
-
-        await interaction.reply({
-            content:
-                'Your key is not valid. Please try again.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const saveResult =
-        database.saveVerifiedUser(
-            interaction.user.id,
-            result.tornId
-        );
-
-    if (
-        !saveResult.success &&
-        saveResult.reason ===
-            'torn_account_already_linked'
-    ) {
-
-        await interaction.reply({
-            content:
-                'This Torn account is already linked to another Discord account.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    try {
-
-        if (VERIFIED_ROLE_ID) {
-            await interaction.member.roles.add(
-                VERIFIED_ROLE_ID
-            );
-        }
-
-        if (UNVERIFIED_ROLE_ID) {
-            await interaction.member.roles.remove(
-                UNVERIFIED_ROLE_ID
-            );
-        }
-
-    } catch (error) {
-
-        console.error(
-            'Failed to update verification roles:',
-            error
-        );
-
-        await interaction.reply({
-            content:
-                'Your Torn account was verified, but I could not update your Discord roles. Please contact staff.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const embed =
-        new EmbedBuilder()
-            .setColor(0x57F287)
-            .setTitle(
-                'Verified Success'
-            )
-            .setDescription(
-                `Thank you ${interaction.user} for joining Torn HQ!\n\nDo you want me to guide you to the server channels?`
-            );
-
-    const row =
-        new ActionRowBuilder()
-            .addComponents(
-
-                new ButtonBuilder()
-                    .setCustomId(
-                        'verification_yes'
-                    )
-                    .setLabel('Yes')
-                    .setStyle(
-                        ButtonStyle.Success
-                    ),
-
-                new ButtonBuilder()
-                    .setCustomId(
-                        'verification_no'
-                    )
-                    .setLabel('No')
-                    .setStyle(
-                        ButtonStyle.Secondary
-                    )
-            );
-
-    await interaction.reply({
-        embeds: [embed],
-        components: [row],
-        ephemeral: true
-    });
-}
-
-async function handleServiceButton(interaction) {
-    const service =
-        SERVICE_DATA[
-            interaction.customId
-        ];
-
-    if (
-        SERVICE_ROLE_CHANNEL_ID &&
-        interaction.channelId !==
-        SERVICE_ROLE_CHANNEL_ID
-    ) {
-        await interaction.reply({
-            content:
-                'This service panel can only be used in the Unlock Services channel.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    if (!service.roleId) {
-        await interaction.reply({
-            content:
-                'This service role has not been configured yet.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const role =
-        interaction.guild.roles.cache.get(
-            service.roleId
-        );
-
-    if (!role) {
-        await interaction.reply({
-            content:
-                'The service role could not be found.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    if (
-        interaction.member.roles.cache.has(
-            service.roleId
-        )
-    ) {
-        await interaction.reply({
-            content:
-                `You already have the ${service.name} role.`,
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const botMember =
-        interaction.guild.members.me;
-
-    if (!botMember) {
-        await interaction.reply({
-            content:
-                'The bot member could not be found.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    if (
-        !botMember.permissions.has(
-            PermissionFlagsBits.ManageRoles
-        )
-    ) {
-        await interaction.reply({
-            content:
-                'The bot does not have permission to manage roles.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    if (
-        role.position >=
-        botMember.roles.highest.position
-    ) {
-        await interaction.reply({
-            content:
-                'I cannot assign this role because it is above or equal to my highest role.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    await interaction.member.roles.add(
-        role,
-        `Selected ${service.name} service`
-    );
-
-    const embed =
-        new EmbedBuilder()
-            .setColor(0x57F287)
-            .setTitle(
-                service.name
-            )
-            .setDescription(
-                service.description
-            );
-
-    await interaction.reply({
-        embeds: [embed],
-        ephemeral: true
-    });
-}
-
-async function handleOrderLosses(interaction) {
-    if (
-        ORDER_SERVICE_CHANNEL_ID &&
-        interaction.channelId !==
-        ORDER_SERVICE_CHANNEL_ID
-    ) {
-        await interaction.reply({
-            content:
-                'The Order Service panel can only be used in the Order Service channel.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const modal =
-        new ModalBuilder()
-            .setCustomId(
-                'order_losses_modal'
-            )
-            .setTitle(
-                'Order Losses'
-            );
-
-    const amountInput =
-        new TextInputBuilder()
-            .setCustomId(
-                'loss_amount'
-            )
-            .setLabel(
-                'Amount of losses'
-            )
-            .setStyle(
-                TextInputStyle.Short
-            )
-            .setPlaceholder(
-                'Example: 50'
-            )
-            .setRequired(true)
-            .setMinLength(1)
-            .setMaxLength(6);
-
-    modal.addComponents(
-        new ActionRowBuilder()
-            .addComponents(
-                amountInput
-            )
-    );
-
-    await interaction.showModal(
-        modal
-    );
-}
-
-async function handleComingSoon(interaction, title) {
-    await interaction.reply({
-        embeds: [
-            new EmbedBuilder()
-                .setColor(0xFEE75C)
-                .setTitle(title)
-                .setDescription(
-                    'Coming Soon'
+        const match =
+            channel.name.match(
+                new RegExp(
+                    `^${prefix}-(\\d+)$`
                 )
-        ],
-        ephemeral: true
-    });
-}
+            );
 
-async function handleLossOrderModal(interaction) {
-    const amount =
-        Number(
-            interaction.fields
-                .getTextInputValue(
-                    'loss_amount'
-                )
-                .trim()
-        );
+        if (!match) {
+            continue;
+        }
 
-    if (
-        !Number.isInteger(amount) ||
-        amount <= 0
-    ) {
-        await interaction.reply({
-            content:
-                'Please enter a valid number of losses.',
-            ephemeral: true
-        });
+        const number =
+            Number(match[1]);
 
-        return;
+        if (number > highest) {
+            highest = number;
+        }
     }
 
-    const minimumPrice =
-        325000;
+    return highest + 1;
+}
+
+async function createLossTicket(interaction, amount) {
+
+    if (!interaction.guild) {
+        return;
+    }
 
     const price =
-        amount *
-        minimumPrice;
-
-    if (!TICKET_CATEGORY_ID) {
-        await interaction.reply({
-            content:
-                'The ticket category has not been configured yet.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const category =
-        interaction.guild.channels.cache.get(
-            TICKET_CATEGORY_ID
-        );
-
-    if (
-        !category ||
-        category.type !==
-            ChannelType.GuildCategory
-    ) {
-        await interaction.reply({
-            content:
-                'The ticket category could not be found.',
-            ephemeral: true
-        });
-
-        return;
-    }
+        amount * LOSS_PRICE;
 
     const number =
-        getNextTicketNumber(
-            'loss'
+        await getNextTicketNumber(
+            interaction.guild,
+            'loss-order'
         );
 
     const channelName =
-        `loss-order-${number}`;
+        `loss-order-${String(number).padStart(3, '0')}`;
 
-    const permissionOverwrites = [
-        {
-            id: interaction.guild.id,
-            deny: [
-                PermissionFlagsBits.ViewChannel
-            ]
-        },
-        {
-            id: interaction.user.id,
-            allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory
-            ]
-        }
-    ];
+    const channel =
+        await interaction.guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildText,
 
-    if (STAFF_ROLE_ID) {
-        permissionOverwrites.push({
-            id: STAFF_ROLE_ID,
-            allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory
+            parent:
+                TICKET_CATEGORY_ID || null,
+
+            topic:
+                'losses',
+
+            permissionOverwrites: [
+
+                {
+                    id:
+                        interaction.guild.roles.everyone.id,
+
+                    deny: [
+                        PermissionFlagsBits.ViewChannel
+                    ]
+                },
+
+                {
+                    id:
+                        interaction.user.id,
+
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory
+                    ]
+                },
+
+                ...(STAFF_ROLE_ID ? [{
+                    id: STAFF_ROLE_ID,
+
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory
+                    ]
+                }] : []),
+
+                ...(ADMIN_ROLE_ID ? [{
+                    id: ADMIN_ROLE_ID,
+
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory
+                    ]
+                }] : [])
             ]
         });
-    }
 
-    if (ADMIN_ROLE_ID) {
-        permissionOverwrites.push({
-            id: ADMIN_ROLE_ID,
-            allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory
-            ]
-        });
-    }
-
-    let ticket;
-
-    try {
-
-        ticket =
-            await interaction.guild.channels.create({
-                name: channelName,
-                type: ChannelType.GuildText,
-                parent: TICKET_CATEGORY_ID,
-                permissionOverwrites
-            });
-
-    } catch (error) {
-
-        console.error(
-            'Failed to create ticket:',
-            error
-        );
-
-        await interaction.reply({
-            content:
-                'I could not create your ticket. Please contact staff.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const staffMention =
-        STAFF_ROLE_ID
-            ? `<@&${STAFF_ROLE_ID}>`
-            : '@staff';
-
-    const adminMention =
-        ADMIN_ROLE_ID
-            ? `<@&${ADMIN_ROLE_ID}>`
-            : '@admin';
-
-    const ticketEmbed =
+    const embed =
         new EmbedBuilder()
             .setColor(0x57F287)
             .setTitle(
@@ -734,17 +225,14 @@ async function handleLossOrderModal(interaction) {
             )
             .addFields(
                 {
-                    name:
-                        'Amount of losses',
-                    value:
-                        String(amount),
+                    name: 'Amount of losses',
+                    value: String(amount),
                     inline: true
                 },
                 {
-                    name:
-                        'Price',
+                    name: 'Price',
                     value:
-                        formatMoney(price),
+                        price.toLocaleString(),
                     inline: true
                 }
             )
@@ -758,7 +246,7 @@ async function handleLossOrderModal(interaction) {
 
                 new ButtonBuilder()
                     .setCustomId(
-                        `ticket_claim_${interaction.user.id}`
+                        'ticket_claim'
                     )
                     .setLabel('Claim')
                     .setStyle(
@@ -767,7 +255,7 @@ async function handleLossOrderModal(interaction) {
 
                 new ButtonBuilder()
                     .setCustomId(
-                        `ticket_close_${interaction.user.id}`
+                        'ticket_close'
                     )
                     .setLabel('Close')
                     .setStyle(
@@ -775,97 +263,459 @@ async function handleLossOrderModal(interaction) {
                     )
             );
 
-    await ticket.send({
+    const staffMention =
+        STAFF_ROLE_ID
+            ? `<@&${STAFF_ROLE_ID}>`
+            : '';
+
+    const adminMention =
+        ADMIN_ROLE_ID
+            ? `<@&${ADMIN_ROLE_ID}>`
+            : '';
+
+    await channel.send({
         content:
-            `${staffMention} ${adminMention}`,
-        embeds: [
-            ticketEmbed
-        ],
-        components: [
-            buttons
-        ]
+            `${interaction.user} ${staffMention} ${adminMention}`,
+
+        embeds: [embed],
+
+        components: [buttons]
     });
 
-    await interaction.reply({
-        content:
-            `Your order has been created: ${ticket}`,
-        ephemeral: true
-    });
+    return channel;
 }
 
-async function handleTicketClaim(interaction) {
-    if (!isStaffOrAdmin(interaction)) {
-        await interaction.reply({
-            content:
-                'Only staff and administrators can claim tickets.',
-            ephemeral: true
-        });
+async function verifyTornApiKey(apiKey) {
 
-        return;
+    if (!apiKey) {
+        return {
+            success: false
+        };
     }
 
-    const parts =
-        interaction.customId.split('_');
+    try {
 
-    const customerId =
-        parts[2];
-
-    if (!customerId) {
-        await interaction.reply({
-            content:
-                'The ticket owner could not be identified.',
-            ephemeral: true
-        });
-
-        return;
-    }
-
-    const customerMention =
-        `<@${customerId}>`;
-
-    const claimantMention =
-        `${interaction.user}`;
-
-    const channel =
-        interaction.channel;
-
-    const messages =
-        await channel.messages.fetch({
-            limit: 20
-        });
-
-    const orderMessage =
-        messages.find(
-            message =>
-                message.author.id ===
-                    interaction.client.user.id &&
-                message.embeds.length > 0 &&
-                message.embeds[0].title &&
-                message.embeds[0].title.includes(
-                    'ordered losses'
-                )
-        );
-
-    if (orderMessage) {
-
-        const embed =
-            EmbedBuilder.from(
-                orderMessage.embeds[0]
+        const response =
+            await fetch(
+                `${TORN_API_URL}${encodeURIComponent(apiKey)}`
             );
 
-        embed.setDescription(
-            `Your ticket has been claimed by ${claimantMention}. ${customerMention}`
+        if (!response.ok) {
+            return {
+                success: false
+            };
+        }
+
+        const data =
+            await response.json();
+
+        if (
+            !data ||
+            !data.player_id
+        ) {
+            return {
+                success: false
+            };
+        }
+
+        return {
+            success: true,
+            tornId: String(data.player_id)
+        };
+
+    } catch (error) {
+
+        console.error(
+            'Torn API verification error:',
+            error
         );
 
-        await orderMessage.edit({
-            embeds: [embed]
-        });
-
-    } else {
-
-        await channel.send(
-            `Your ticket has been claimed by ${claimantMention}. ${customerMention}`
-        );
+        return {
+            success: false
+        };
     }
+}
 
-        
+module.exports = {
+    name: Events.InteractionCreate,
+
+    async execute(interaction) {
+
+        try {
+
+            /*
+             * SLASH COMMANDS
+             */
+
+            if (interaction.isChatInputCommand()) {
+
+                const command =
+                    interaction.client.commands.get(
+                        interaction.commandName
+                    );
+
+                if (!command) {
+                    return;
+                }
+
+                /*
+                 * Only /verify can be used
+                 * by unverified users.
+                 */
+
+                if (
+                    interaction.commandName !==
+                    'verify'
+                ) {
+
+                    if (
+                        !database.isVerified(
+                            interaction.user.id
+                        )
+                    ) {
+
+                        return interaction.reply({
+                            content:
+                                'You must verify your Torn account first using `/verify` in the #Enter Verification channel.',
+                            ephemeral: true
+                        });
+                    }
+                }
+
+                await command.execute(
+                    interaction
+                );
+
+                return;
+            }
+
+            /*
+             * BUTTONS
+             */
+
+            if (interaction.isButton()) {
+
+                /*
+                 * ADD API KEY
+                 */
+
+                if (
+                    interaction.customId ===
+                    'verify_add_key'
+                ) {
+
+                    const modal =
+                        new ModalBuilder()
+                            .setCustomId(
+                                'verify_api_modal'
+                            )
+                            .setTitle(
+                                'Add Torn API Key'
+                            );
+
+                    const keyInput =
+                        new TextInputBuilder()
+                            .setCustomId(
+                                'torn_api_key'
+                            )
+                            .setLabel(
+                                'Torn API Key'
+                            )
+                            .setPlaceholder(
+                                'Enter your Torn API key'
+                            )
+                            .setStyle(
+                                TextInputStyle.Short
+                            )
+                            .setRequired(true);
+
+                    const row =
+                        new ActionRowBuilder()
+                            .addComponents(
+                                keyInput
+                            );
+
+                    modal.addComponents(row);
+
+                    await interaction.showModal(
+                        modal
+                    );
+
+                    return;
+                }
+
+                /*
+                 * VERIFICATION YES
+                 */
+
+                if (
+                    interaction.customId ===
+                    'verification_yes'
+                ) {
+
+                    return interaction.update({
+                        content:
+                            'Server channels will be added here later.',
+                        embeds: [],
+                        components: []
+                    });
+                }
+
+                /*
+                 * VERIFICATION NO
+                 */
+
+                if (
+                    interaction.customId ===
+                    'verification_no'
+                ) {
+
+                    return interaction.update({
+                        content:
+                            `Have Fun ${interaction.user}! ☺️`,
+                        embeds: [],
+                        components: []
+                    });
+                }
+
+                /*
+                 * SERVICE ROLE BUTTONS
+                 */
+
+                if (
+                    SERVICE_ROLES[
+                        interaction.customId
+                    ]
+                ) {
+
+                    if (
+                        !database.isVerified(
+                            interaction.user.id
+                        )
+                    ) {
+
+                        return interaction.reply({
+                            content:
+                                'You must verify your Torn account first.',
+                            ephemeral: true
+                        });
+                    }
+
+                    const roleId =
+                        SERVICE_ROLES[
+                            interaction.customId
+                        ];
+
+                    const member =
+                        interaction.member;
+
+                    if (!member) {
+                        return;
+                    }
+
+                    if (
+                        member.roles.cache.has(
+                            roleId
+                        )
+                    ) {
+
+                        await member.roles.remove(
+                            roleId
+                        );
+
+                        return interaction.reply({
+                            content:
+                                `Removed the ${interaction.customId.replace('service_', '').replaceAll('_', ' ')} role from you.`,
+                            ephemeral: true
+                        });
+                    }
+
+                    await member.roles.add(
+                        roleId
+                    );
+
+                    return interaction.reply({
+                        content:
+                            `You have been given the ${interaction.customId.replace('service_', '').replaceAll('_', ' ')} role.`,
+                        ephemeral: true
+                    });
+                }
+
+                /*
+                 * ORDER LOSSES
+                 */
+
+                if (
+                    interaction.customId ===
+                    'order_losses'
+                ) {
+
+                    if (
+                        !database.isVerified(
+                            interaction.user.id
+                        )
+                    ) {
+
+                        return interaction.reply({
+                            content:
+                                'You must verify your Torn account first.',
+                            ephemeral: true
+                        });
+                    }
+
+                    const embed =
+                        new EmbedBuilder()
+                            .setColor(
+                                0x57F287
+                            )
+                            .setDescription(
+                                [
+                                    '**Minimum Price: 325,000**',
+                                    '',
+                                    '**For the Loss Seller: 300,000**',
+                                    '',
+                                    '**For the Fee Order: 25,000**'
+                                ].join('\n')
+                            );
+
+                    const modal =
+                        new ModalBuilder()
+                            .setCustomId(
+                                'order_losses_modal'
+                            )
+                            .setTitle(
+                                'Order Losses'
+                            );
+
+                    const amountInput =
+                        new TextInputBuilder()
+                            .setCustomId(
+                                'loss_amount'
+                            )
+                            .setLabel(
+                                'Amount of losses'
+                            )
+                            .setPlaceholder(
+                                'Example: 50'
+                            )
+                            .setStyle(
+                                TextInputStyle.Short
+                            )
+                            .setRequired(true);
+
+                    modal.addComponents(
+                        new ActionRowBuilder()
+                            .addComponents(
+                                amountInput
+                            )
+                    );
+
+                    await interaction.showModal(
+                        modal
+                    );
+
+                    return;
+                }
+
+                /*
+                 * COMING SOON ORDERS
+                 */
+
+                if (
+                    interaction.customId ===
+                    'order_escapes' ||
+                    interaction.customId ===
+                    'order_bounties' ||
+                    interaction.customId ===
+                    'order_detective'
+                ) {
+
+                    if (
+                        !database.isVerified(
+                            interaction.user.id
+                        )
+                    ) {
+
+                        return interaction.reply({
+                            content:
+                                'You must verify your Torn account first.',
+                            ephemeral: true
+                        });
+                    }
+
+                    return interaction.reply({
+                        content:
+                            'Coming Soon',
+                        ephemeral: true
+                    });
+                }
+
+                /*
+                 * CLAIM TICKET
+                 */
+
+                if (
+                    interaction.customId ===
+                    'ticket_claim'
+                ) {
+
+                    if (
+                        !isStaffOrAdmin(
+                            interaction.member
+                        )
+                    ) {
+
+                        return interaction.reply({
+                            content:
+                                'Only Staff and Admin can claim tickets.',
+                            ephemeral: true
+                        });
+                    }
+
+                    const channel =
+                        interaction.channel;
+
+                    if (!channel) {
+                        return;
+                    }
+
+                    return interaction.reply({
+                        content:
+                            `Your ticket has been claimed by ${interaction.user}. <@${channel.topic === 'losses' ? channel.name : interaction.user.id}>`,
+                    });
+                }
+
+                /*
+                 * CLOSE TICKET
+                 */
+
+                if (
+                    interaction.customId ===
+                    'ticket_close'
+                ) {
+
+                    if (
+                        !isStaffOrAdmin(
+                            interaction.member
+                        )
+                    ) {
+
+                        return interaction.reply({
+                            content:
+                                'Only Staff and Admin can close tickets.',
+                            ephemeral: true
+                        });
+                    }
+
+                    await interaction.reply({
+                        content:
+                            'This ticket will be closed in 5 seconds.'
+                    });
+
+                    setTimeout(
+                        async () => {
+
+                            try {
+
+                                await interaction.channel.delete(
+                                   
