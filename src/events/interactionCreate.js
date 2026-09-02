@@ -45,6 +45,13 @@ module.exports = {
 
                 if (!command) return;
 
+                /*
+                 * /verify is available to everyone.
+                 *
+                 * Every other command requires
+                 * verification.
+                 */
+
                 if (
                     interaction.commandName !== 'verify' &&
                     !isVerified(interaction.user.id)
@@ -70,6 +77,12 @@ module.exports = {
              */
 
             if (interaction.isButton()) {
+
+                /*
+                 * =================================
+                 * ADD KEY
+                 * =================================
+                 */
 
                 if (
                     interaction.customId ===
@@ -99,6 +112,22 @@ module.exports = {
                                 'Torn HQ Verification'
                             );
 
+                    const warning =
+                        new TextInputBuilder()
+                            .setCustomId(
+                                'verification_warning'
+                            )
+                            .setLabel(
+                                '⚠️ Do not add your personal information.'
+                            )
+                            .setStyle(
+                                TextInputStyle.Short
+                            )
+                            .setPlaceholder(
+                                'Only enter your Torn API key.'
+                            )
+                            .setRequired(false);
+
                     const keyInput =
                         new TextInputBuilder()
                             .setCustomId(
@@ -119,7 +148,14 @@ module.exports = {
 
                     modal.addComponents(
                         new ActionRowBuilder()
-                            .addComponents(keyInput)
+                            .addComponents(
+                                warning
+                            ),
+
+                        new ActionRowBuilder()
+                            .addComponents(
+                                keyInput
+                            )
                     );
 
                     await interaction.showModal(
@@ -257,6 +293,11 @@ module.exports = {
                     return;
                 }
 
+                /*
+                 * Only allow verification inside
+                 * Enter Verification.
+                 */
+
                 if (
                     VERIFICATION_CHANNEL_ID &&
                     interaction.channelId !==
@@ -271,6 +312,10 @@ module.exports = {
                     return;
                 }
 
+                /*
+                 * Get API key.
+                 */
+
                 const apiKey =
                     interaction.fields
                         .getTextInputValue(
@@ -279,8 +324,9 @@ module.exports = {
                         .trim();
 
                 /*
-                 * Torn API keys are 16 characters.
+                 * Check API key format.
                  */
+
                 if (
                     !/^[A-Za-z0-9]{16}$/.test(
                         apiKey
@@ -295,14 +341,22 @@ module.exports = {
                     return;
                 }
 
+                /*
+                 * Defer the response while
+                 * contacting Torn.
+                 */
+
                 await interaction.deferReply({
                     ephemeral: true
                 });
 
                 /*
                  * =================================
-                 * TORN API REQUEST
+                 * TORN API
                  * =================================
+                 *
+                 * The API key is only used here.
+                 * It is NEVER saved to the database.
                  */
 
                 const apiUrl =
@@ -310,10 +364,29 @@ module.exports = {
                     '?selections=info' +
                     `&key=${encodeURIComponent(apiKey)}`;
 
-                const response =
-                    await fetch(apiUrl);
+                let response;
 
-                if (!response.ok) {
+                try {
+
+                    response =
+                        await fetch(
+                            apiUrl,
+                            {
+                                method: 'GET',
+                                headers: {
+                                    'Accept':
+                                        'application/json'
+                                }
+                            }
+                        );
+
+                } catch (error) {
+
+                    console.error(
+                        'Torn API connection error:',
+                        error.message
+                    );
+
                     await interaction.editReply({
                         content:
                             'Torn API could not be reached. Please try again later.'
@@ -322,12 +395,46 @@ module.exports = {
                     return;
                 }
 
-                const data =
-                    await response.json();
+                /*
+                 * HTTP error.
+                 */
 
-                console.log(
-                    'Torn API response received.'
-                );
+                if (!response.ok) {
+
+                    console.error(
+                        'Torn API HTTP status:',
+                        response.status
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            'Torn API could not be reached. Please try again later.'
+                    });
+
+                    return;
+                }
+
+                let data;
+
+                try {
+
+                    data =
+                        await response.json();
+
+                } catch (error) {
+
+                    console.error(
+                        'Invalid Torn API response:',
+                        error.message
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            'Torn returned an invalid response. Please try again later.'
+                    });
+
+                    return;
+                }
 
                 /*
                  * =================================
@@ -338,9 +445,14 @@ module.exports = {
                 if (data.error) {
 
                     console.error(
-                        'Torn API error:',
-                        data.error
+                        'Torn API error code:',
+                        data.error.code
                     );
+
+                    /*
+                     * Torn error code 2 means
+                     * incorrect API key.
+                     */
 
                     if (
                         Number(data.error.code) === 2
@@ -363,30 +475,69 @@ module.exports = {
 
                 /*
                  * =================================
-                 * FIND TORN USER ID
+                 * FIND TORN ACCOUNT ID
                  * =================================
                  *
-                 * Torn can return the user ID inside
-                 * the user object. We also check the
-                 * other possible locations so the bot
-                 * does not fail unnecessarily.
+                 * Different Torn API responses can
+                 * expose the ID in different places.
                  */
 
-                const tornId =
-                    data?.user?.id ??
-                    data?.user?.user_id ??
-                    data?.user_id ??
-                    data?.player_id ??
-                    data?.id;
+                let tornId = null;
+
+                if (
+                    data &&
+                    data.user &&
+                    typeof data.user === 'object'
+                ) {
+
+                    tornId =
+                        data.user.id ??
+                        data.user.user_id ??
+                        data.user.player_id;
+                }
+
+                if (!tornId) {
+                    tornId =
+                        data?.user_id ??
+                        data?.player_id ??
+                        data?.id;
+                }
+
+                /*
+                 * Some responses may return the
+                 * account information inside another
+                 * object.
+                 */
+
+                if (
+                    !tornId &&
+                    data?.user &&
+                    typeof data.user === 'string'
+                ) {
+                    tornId =
+                        data.user;
+                }
+
+                /*
+                 * =================================
+                 * NO TORN ID
+                 * =================================
+                 */
 
                 if (!tornId) {
 
+                    /*
+                     * Do NOT print the complete API
+                     * response because it could contain
+                     * sensitive information.
+                     */
+
                     console.error(
-                        'Torn API did not return a Torn user ID.'
+                        'Torn verification succeeded, but no Torn account ID was found.'
                     );
 
                     console.error(
-                        'Returned fields:',
+                        'Returned top-level fields:',
                         Object.keys(data || {})
                     );
 
@@ -398,29 +549,38 @@ module.exports = {
                     return;
                 }
 
-                const normalizedTornId =
+                tornId =
                     String(tornId);
 
                 /*
                  * =================================
-                 * SAVE DISCORD <-> TORN LINK
+                 * DATABASE
                  * =================================
                  *
-                 * The API key itself is never stored.
+                 * Only Discord ID, Torn ID and
+                 * verification timestamp are saved.
+                 *
+                 * API KEY IS NOT SAVED.
                  */
 
                 const saved =
                     saveVerifiedUser(
                         interaction.user.id,
-                        normalizedTornId
+                        tornId
                     );
 
                 if (!saved.success) {
+
+                    /*
+                     * Torn account already belongs
+                     * to another Discord account.
+                     */
 
                     if (
                         saved.reason ===
                         'torn_account_already_linked'
                     ) {
+
                         await interaction.editReply({
                             content:
                                 'This Torn account is already linked to another Discord account.'
@@ -439,7 +599,7 @@ module.exports = {
 
                 /*
                  * =================================
-                 * ROLE MANAGEMENT
+                 * DISCORD MEMBER
                  * =================================
                  */
 
@@ -447,6 +607,7 @@ module.exports = {
                     interaction.member;
 
                 if (!member) {
+
                     await interaction.editReply({
                         content:
                             'I could not find your server membership.'
@@ -455,16 +616,39 @@ module.exports = {
                     return;
                 }
 
+                /*
+                 * =================================
+                 * REMOVE UNVERIFIED ROLE
+                 * =================================
+                 */
+
                 if (
                     UNVERIFIED_ROLE_ID &&
                     member.roles.cache.has(
                         UNVERIFIED_ROLE_ID
                     )
                 ) {
-                    await member.roles.remove(
-                        UNVERIFIED_ROLE_ID
-                    );
+
+                    try {
+
+                        await member.roles.remove(
+                            UNVERIFIED_ROLE_ID
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            'Failed to remove UNVERIFIED role:',
+                            error.message
+                        );
+                    }
                 }
+
+                /*
+                 * =================================
+                 * GIVE VERIFIED ROLE
+                 * =================================
+                 */
 
                 if (
                     VERIFIED_ROLE_ID &&
@@ -472,83 +656,28 @@ module.exports = {
                         VERIFIED_ROLE_ID
                     )
                 ) {
-                    await member.roles.add(
-                        VERIFIED_ROLE_ID
-                    );
+
+                    try {
+
+                        await member.roles.add(
+                            VERIFIED_ROLE_ID
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            'Failed to add VERIFIED role:',
+                            error.message
+                        );
+
+                        await interaction.editReply({
+                            content:
+                                'Your Torn account was verified, but I could not give you the VERIFIED role. Please contact a server administrator.'
+                        });
+
+                        return;
+                    }
                 }
 
                 /*
-                 * =================================
-                 * SUCCESS
-                 * =================================
-                 */
-
-                const successEmbed =
-                    new EmbedBuilder()
-                        .setColor(0x57F287)
-                        .setDescription(
-                            `**Verified Success.** Thank you ${interaction.user} for joining Torn HQ!\n\n` +
-                            'Do you want me to guide you to the server channels?'
-                        );
-
-                const buttons =
-                    new ActionRowBuilder()
-                        .addComponents(
-
-                            new ButtonBuilder()
-                                .setCustomId(
-                                    'verification_yes'
-                                )
-                                .setLabel('Yes')
-                                .setStyle(
-                                    ButtonStyle.Success
-                                ),
-
-                            new ButtonBuilder()
-                                .setCustomId(
-                                    'verification_no'
-                                )
-                                .setLabel('No')
-                                .setStyle(
-                                    ButtonStyle.Secondary
-                                )
-                        );
-
-                await interaction.editReply({
-                    content: '',
-                    embeds: [
-                        successEmbed
-                    ],
-                    components: [
-                        buttons
-                    ]
-                });
-
-                return;
-            }
-
-        } catch (error) {
-
-            console.error(
-                'Interaction error:',
-                error
-            );
-
-            if (
-                !interaction.replied &&
-                !interaction.deferred
-            ) {
-                await interaction.reply({
-                    content:
-                        'Something went wrong. Please try again later.',
-                    ephemeral: true
-                }).catch(() => {});
-            } else {
-                await interaction.editReply({
-                    content:
-                        'Something went wrong. Please try again later.'
-                }).catch(() => {});
-            }
-        }
-    }
-};
+                 * ==========================
