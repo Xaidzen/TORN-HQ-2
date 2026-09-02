@@ -45,10 +45,6 @@ module.exports = {
 
                 if (!command) return;
 
-                /*
-                 * /verify is the ONLY command
-                 * an unverified member can use.
-                 */
                 if (
                     interaction.commandName !== 'verify' &&
                     !isVerified(interaction.user.id)
@@ -75,19 +71,11 @@ module.exports = {
 
             if (interaction.isButton()) {
 
-                /*
-                 * ADD KEY
-                 */
-
                 if (
                     interaction.customId ===
                     'verify_add_key'
                 ) {
 
-                    /*
-                     * Add Key is only usable
-                     * inside Enter Verification.
-                     */
                     if (
                         VERIFICATION_CHANNEL_ID &&
                         interaction.channelId !==
@@ -129,13 +117,10 @@ module.exports = {
                             .setMinLength(16)
                             .setMaxLength(16);
 
-                    const row =
+                    modal.addComponents(
                         new ActionRowBuilder()
-                            .addComponents(
-                                keyInput
-                            );
-
-                    modal.addComponents(row);
+                            .addComponents(keyInput)
+                    );
 
                     await interaction.showModal(
                         modal
@@ -227,11 +212,8 @@ module.exports = {
 
                 /*
                  * =================================
-                 * VERIFIED ONLY BUTTONS
+                 * VERIFIED BUTTONS
                  * =================================
-                 *
-                 * Any future verified button should
-                 * start with "verified_".
                  */
 
                 if (
@@ -254,11 +236,6 @@ module.exports = {
                         return;
                     }
 
-                    /*
-                     * Future verified button
-                     * code goes here.
-                     */
-
                     return;
                 }
 
@@ -280,10 +257,6 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * Modal can only be submitted
-                 * from Enter Verification.
-                 */
                 if (
                     VERIFICATION_CHANNEL_ID &&
                     interaction.channelId !==
@@ -306,7 +279,7 @@ module.exports = {
                         .trim();
 
                 /*
-                 * Basic API key format check.
+                 * Torn API keys are 16 characters.
                  */
                 if (
                     !/^[A-Za-z0-9]{16}$/.test(
@@ -327,11 +300,11 @@ module.exports = {
                 });
 
                 /*
-                 * Validate the key with Torn.
-                 *
-                 * IMPORTANT:
-                 * The key is NEVER saved.
+                 * =================================
+                 * TORN API REQUEST
+                 * =================================
                  */
+
                 const apiUrl =
                     'https://api.torn.com/key/' +
                     '?selections=info' +
@@ -352,16 +325,25 @@ module.exports = {
                 const data =
                     await response.json();
 
+                console.log(
+                    'Torn API response received.'
+                );
+
                 /*
-                 * Torn returned an error.
+                 * =================================
+                 * TORN API ERROR
+                 * =================================
                  */
+
                 if (data.error) {
 
-                    /*
-                     * Incorrect key.
-                     */
+                    console.error(
+                        'Torn API error:',
+                        data.error
+                    );
+
                     if (
-                        data.error.code === 2
+                        Number(data.error.code) === 2
                     ) {
                         await interaction.editReply({
                             content:
@@ -380,13 +362,34 @@ module.exports = {
                 }
 
                 /*
-                 * Find Torn account ID.
+                 * =================================
+                 * FIND TORN USER ID
+                 * =================================
+                 *
+                 * Torn can return the user ID inside
+                 * the user object. We also check the
+                 * other possible locations so the bot
+                 * does not fail unnecessarily.
                  */
+
                 const tornId =
                     data?.user?.id ??
-                    data?.user_id;
+                    data?.user?.user_id ??
+                    data?.user_id ??
+                    data?.player_id ??
+                    data?.id;
 
                 if (!tornId) {
+
+                    console.error(
+                        'Torn API did not return a Torn user ID.'
+                    );
+
+                    console.error(
+                        'Returned fields:',
+                        Object.keys(data || {})
+                    );
+
                     await interaction.editReply({
                         content:
                             'The key could not be linked to a Torn account. Please try again.'
@@ -395,15 +398,21 @@ module.exports = {
                     return;
                 }
 
+                const normalizedTornId =
+                    String(tornId);
+
                 /*
-                 * Prevent one Torn account from
-                 * being connected to multiple Discord
-                 * accounts.
+                 * =================================
+                 * SAVE DISCORD <-> TORN LINK
+                 * =================================
+                 *
+                 * The API key itself is never stored.
                  */
+
                 const saved =
                     saveVerifiedUser(
                         interaction.user.id,
-                        tornId
+                        normalizedTornId
                     );
 
                 if (!saved.success) {
@@ -446,9 +455,6 @@ module.exports = {
                     return;
                 }
 
-                /*
-                 * Remove UNVERIFIED.
-                 */
                 if (
                     UNVERIFIED_ROLE_ID &&
                     member.roles.cache.has(
@@ -460,9 +466,6 @@ module.exports = {
                     );
                 }
 
-                /*
-                 * Give VERIFIED.
-                 */
                 if (
                     VERIFIED_ROLE_ID &&
                     !member.roles.cache.has(
@@ -476,7 +479,7 @@ module.exports = {
 
                 /*
                  * =================================
-                 * SUCCESS MESSAGE
+                 * SUCCESS
                  * =================================
                  */
 
