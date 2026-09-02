@@ -8,9 +8,7 @@ const VERIFICATION_CHANNEL_ID =
 const ONE_DAY =
     24 * 60 * 60 * 1000;
 
-console.log(
-    'messageCreate.js loaded'
-);
+console.log('messageCreate.js loaded');
 
 module.exports = {
     name: Events.MessageCreate,
@@ -18,7 +16,7 @@ module.exports = {
     async execute(message) {
 
         console.log(
-            `Message detected: ${message.author.tag} in ${message.channelId}`
+            `Message detected in channel: ${message.channelId}`
         );
 
         try {
@@ -48,18 +46,16 @@ module.exports = {
             );
 
             await message.delete().catch(error => {
-
                 console.error(
-                    'Failed to delete message:',
+                    'Could not delete message:',
                     error.message
                 );
-
             });
 
             if (!message.member) {
 
                 console.error(
-                    'Could not find Discord member.'
+                    'Could not find the member.'
                 );
 
                 return;
