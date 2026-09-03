@@ -1,14 +1,14 @@
 const crypto = require("crypto");
 
-const BASE_URL = "https://api.torn.com";
+const TORN_API = "https://api.torn.com";
 
 function encrypt(text, secret) {
+    const iv = crypto.randomBytes(16);
+
     const key = crypto
         .createHash("sha256")
         .update(secret)
         .digest();
-
-    const iv = crypto.randomBytes(16);
 
     const cipher = crypto.createCipheriv(
         "aes-256-cbc",
@@ -16,14 +16,21 @@ function encrypt(text, secret) {
         iv
     );
 
-    let encrypted = cipher.update(text, "utf8", "hex");
-    encrypted += cipher.final("hex");
+    const encrypted = Buffer.concat([
+        cipher.update(text, "utf8"),
+        cipher.final()
+    ]);
 
-    return `${iv.toString("hex")}:${encrypted}`;
+    return (
+        iv.toString("hex") +
+        ":" +
+        encrypted.toString("hex")
+    );
 }
 
-function decrypt(value, secret) {
-    const [ivHex, encrypted] = value.split(":");
+function decrypt(data, secret) {
+    const [ivHex, encryptedHex] =
+        data.split(":");
 
     const key = crypto
         .createHash("sha256")
@@ -36,23 +43,29 @@ function decrypt(value, secret) {
         Buffer.from(ivHex, "hex")
     );
 
-    let decrypted = decipher.update(
-        encrypted,
-        "hex",
-        "utf8"
-    );
-
-    decrypted += decipher.final("utf8");
-
-    return decrypted;
+    return Buffer.concat([
+        decipher.update(
+            Buffer.from(
+                encryptedHex,
+                "hex"
+            )
+        ),
+        decipher.final()
+    ]).toString("utf8");
 }
 
-async function request(apiKey, selection) {
+async function tornRequest(
+    apiKey,
+    selection,
+    id = null
+) {
     const url =
-        `${BASE_URL}/user/?selections=${encodeURIComponent(selection)}` +
-        `&key=${encodeURIComponent(apiKey)}`;
+        id
+            ? `${TORN_API}/user/${id}/?selections=${selection}&key=${encodeURIComponent(apiKey)}`
+            : `${TORN_API}/user/?selections=${selection}&key=${encodeURIComponent(apiKey)}`;
 
-    const response = await fetch(url);
+    const response =
+        await fetch(url);
 
     if (!response.ok) {
         throw new Error(
@@ -60,65 +73,156 @@ async function request(apiKey, selection) {
         );
     }
 
-    return response.json();
+    const data =
+        await response.json();
+
+    if (data.error) {
+        throw new Error(
+            `Torn API ${data.error.code}: ${data.error.error}`
+        );
+    }
+
+    return data;
 }
 
 async function verifyApiKey(apiKey) {
-    if (!apiKey || typeof apiKey !== "string") {
-        return {
-            valid: false,
-            error: "EMPTY_KEY"
-        };
-    }
-
-    const cleanKey = apiKey.trim();
-
-    if (!/^[A-Za-z0-9]{16}$/.test(cleanKey)) {
-        return {
-            valid: false,
-            error: "INVALID_FORMAT"
-        };
-    }
-
     try {
-        const data = await request(
-            cleanKey,
-            "basic"
-        );
+        const data =
+            await tornRequest(
+                apiKey.trim(),
+                "basic"
+            );
 
-        if (data.error) {
+        if (
+            !data.player_id ||
+            !data.name
+        ) {
             return {
                 valid: false,
-                error: data.error.code,
-                message: data.error.error
-            };
-        }
-
-        if (!data.player_id) {
-            return {
-                valid: false,
-                error: "NO_PLAYER_ID"
+                error: "INVALID_KEY"
             };
         }
 
         return {
             valid: true,
-            tornId: String(data.player_id),
-            tornUsername: data.name || "Unknown"
+            tornId: String(
+                data.player_id
+            ),
+            tornUsername: data.name
         };
 
-    } catch (error) {
+    } catch {
         return {
             valid: false,
-            error: "REQUEST_FAILED",
-            message: error.message
+            error: "INVALID_KEY"
         };
     }
+}
+
+async function getTornUser(
+    apiKey,
+    tornId
+) {
+    const basic =
+        await tornRequest(
+            apiKey,
+            "basic",
+            tornId
+        );
+
+    const profile =
+        await tornRequest(
+            apiKey,
+            "profile",
+            tornId
+        ).catch(() => null);
+
+    const faction =
+        await tornRequest(
+            apiKey,
+            "faction",
+            tornId
+        ).catch(() => null);
+
+    const factionName =
+        faction?.faction?.name ||
+        faction?.name ||
+        "N/A";
+
+    const life =
+        profile?.life ||
+        basic?.life ||
+        null;
+
+    const status =
+        profile?.status ||
+        basic?.status ||
+        null;
+
+    let statusText = "Offline";
+
+    if (
+        typeof status === "object" &&
+        status !== null
+    ) {
+        statusText =
+            status.state ||
+            "Offline";
+    } else if (
+        Array.isArray(status)
+    ) {
+        statusText =
+            status[0] ||
+            "Offline";
+    } else if (
+        typeof status === "string"
+    ) {
+        statusText =
+            status;
+    }
+
+    const profilePicture =
+        profile?.profile_image ||
+        profile?.profile_image_url ||
+        profile?.image ||
+        null;
+
+    return {
+        id: String(
+            basic?.player_id ||
+            profile?.player_id ||
+            tornId
+        ),
+
+        username:
+            basic?.name ||
+            profile?.name ||
+            "Unknown",
+
+        profileLink:
+            `https://www.torn.com/profiles.php?XID=${tornId}`,
+
+        profilePicture,
+
+        status: statusText,
+
+        faction: factionName,
+
+        lifeCurrent:
+            life?.current ??
+            life?.now ??
+            "N/A",
+
+        lifeMaximum:
+            life?.maximum ??
+            life?.max ??
+            "N/A"
+    };
 }
 
 module.exports = {
     encrypt,
     decrypt,
     verifyApiKey,
-    request
+    getTornUser
 };
