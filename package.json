@@ -2,9 +2,9 @@
   "name": "torn-hq-2",
   "version": "1.0.0",
   "description": "Torn HQ Discord service bot",
-  "main": "src/index.js",
+  "main": "src/Index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/Index.js",
     "deploy": "node src/deploy-commands.js"
   },
   "dependencies": {
