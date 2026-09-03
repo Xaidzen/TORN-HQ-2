@@ -1,61 +1,51 @@
-require('dotenv').config();
-
 const {
     REST,
     Routes
-} = require('discord.js');
+} = require("discord.js");
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
+
+const config = require("./utils/config");
 
 const commands = [];
 
-const commandsPath = path.join(
-    __dirname,
-    'commands'
-);
+const commandsPath =
+    path.join(__dirname, "commands");
 
-const commandFiles = fs
-    .readdirSync(commandsPath)
-    .filter(file => file.endsWith('.js'));
+const commandFiles =
+    fs.readdirSync(commandsPath)
+        .filter(file =>
+            file.endsWith(".js")
+        );
 
 for (const file of commandFiles) {
+    const command =
+        require(
+            path.join(commandsPath, file)
+        );
 
-    const command = require(
-        path.join(commandsPath, file)
+    commands.push(
+        command.data.toJSON()
     );
-
-    if (!command.data) {
-        continue;
-    }
-
-    const commandData = Array.isArray(command.data)
-        ? command.data
-        : [command.data];
-
-    for (const data of commandData) {
-        commands.push(data.toJSON());
-    }
 }
 
 const rest = new REST({
-    version: '10'
+    version: "10"
 }).setToken(
-    process.env.DISCORD_TOKEN
+    config.DISCORD_TOKEN
 );
 
 (async () => {
-
     try {
-
         console.log(
-            `🔄 Registering ${commands.length} slash command(s)...`
+            `Registering ${commands.length} slash commands...`
         );
 
         await rest.put(
             Routes.applicationGuildCommands(
-                process.env.CLIENT_ID,
-                process.env.TARGET_GUILD_ID
+                config.CLIENT_ID,
+                config.GUILD_ID
             ),
             {
                 body: commands
@@ -63,16 +53,10 @@ const rest = new REST({
         );
 
         console.log(
-            '✅ Slash commands registered successfully.'
+            "Slash commands registered successfully."
         );
 
     } catch (error) {
-
-        console.error(
-            '❌ Failed to register slash commands:',
-            error
-        );
-
+        console.error(error);
     }
-
 })();
