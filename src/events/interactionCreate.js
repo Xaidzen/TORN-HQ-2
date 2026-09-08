@@ -1,4 +1,4 @@
-const {
+	const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
@@ -31,13 +31,13 @@ const {
     getTicket,
     getTicketByChannel,
     claimTicket,
-    closeTicket,
-    saveMessage
+    closeTicket
 } = require("../modules/ticketSystem");
 
 const {
     isStaff
 } = require("../utils/permissions");
+
 
 module.exports = {
     name: "interactionCreate",
@@ -45,9 +45,9 @@ module.exports = {
     async execute(interaction) {
         try {
 
-            /*
-             * SLASH COMMANDS
-             */
+            /* =========================
+               SLASH COMMANDS
+            ========================= */
 
             if (interaction.isChatInputCommand()) {
                 const command =
@@ -62,9 +62,9 @@ module.exports = {
             }
 
 
-            /*
-             * ADD / UPDATE API KEY
-             */
+            /* =========================
+               VERIFY API KEY
+            ========================= */
 
             if (
                 interaction.isButton() &&
@@ -72,14 +72,10 @@ module.exports = {
             ) {
                 const modal =
                     new ModalBuilder()
-                        .setCustomId(
-                            "verify_api_key_modal"
-                        )
-                        .setTitle(
-                            "Add / Update Torn API Key"
-                        );
+                        .setCustomId("verify_api_modal")
+                        .setTitle("Torn API Verification");
 
-                const keyInput =
+                const apiInput =
                     new TextInputBuilder()
                         .setCustomId("api_key")
                         .setLabel(
@@ -97,7 +93,7 @@ module.exports = {
 
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(
-                        keyInput
+                        apiInput
                     )
                 );
 
@@ -106,25 +102,30 @@ module.exports = {
             }
 
 
-            /*
-             * API KEY MODAL
-             */
+            /* =========================
+               VERIFY MODAL
+            ========================= */
 
             if (
                 interaction.isModalSubmit() &&
-                interaction.customId ===
-                    "verify_api_key_modal"
+                interaction.customId === "verify_api_modal"
             ) {
                 const apiKey =
                     interaction.fields
-                        .getTextInputValue(
-                            "api_key"
-                        )
+                        .getTextInputValue("api_key")
                         .trim();
 
                 await interaction.deferReply({
                     ephemeral: true
                 });
+
+                if (apiKey.length !== 16) {
+                    await interaction.editReply({
+                        content:
+                            "Invalid Torn API key. Please enter your 16 Character Torn API Key."
+                    });
+                    return;
+                }
 
                 const result =
                     await verifyUser(
@@ -138,44 +139,56 @@ module.exports = {
                         result.reason?.error ===
                         "TORN_ACCOUNT_ALREADY_LINKED"
                     ) {
-                        return interaction.editReply({
+                        await interaction.editReply({
                             content:
                                 "This Torn account is already linked to another Discord account."
                         });
+                        return;
                     }
 
-                    return interaction.editReply({
+                    await interaction.editReply({
                         content:
-                            "Your key is not valid. Please try again."
+                            "Invalid Torn API key. Please check your API key and try again."
                     });
+
+                    return;
                 }
 
                 const member =
-                    interaction.guild.members.cache.get(
-                        interaction.user.id
-                    );
+                    interaction.member;
 
-                if (member) {
+                if (
+                    config.UNVERIFIED_ROLE_ID &&
+                    member.roles.cache.has(
+                        config.UNVERIFIED_ROLE_ID
+                    )
+                ) {
                     await member.roles.remove(
                         config.UNVERIFIED_ROLE_ID
-                    );
-
-                    await member.roles.add(
-                        config.VERIFIED_ROLE_ID
-                    );
+                    ).catch(() => {});
                 }
 
-                const successEmbed =
+                if (config.VERIFIED_ROLE_ID) {
+                    await member.roles.add(
+                        config.VERIFIED_ROLE_ID
+                    ).catch(() => {});
+                }
+
+                const embed =
                     new EmbedBuilder()
                         .setColor(0x00ff00)
+                        .setTitle(
+                            "Verified Success"
+                        )
                         .setDescription(
-                            `**Verified Success.** Thank you <@${interaction.user.id}> for joining Torn HQ!\n\n` +
-                            "**Do you want me to guide you to the server channels?**"
+                            `Thank you <@${interaction.user.id}> for joining Torn HQ!\n\n` +
+                            "Do you want me to guide you to the server channels?"
                         );
 
                 const buttons =
                     new ActionRowBuilder()
                         .addComponents(
+
                             new ButtonBuilder()
                                 .setCustomId(
                                     "verification_guide_yes"
@@ -196,7 +209,7 @@ module.exports = {
                         );
 
                 await interaction.editReply({
-                    embeds: [successEmbed],
+                    embeds: [embed],
                     components: [buttons]
                 });
 
@@ -204,30 +217,30 @@ module.exports = {
             }
 
 
-            /*
-             * VERIFICATION GUIDE YES
-             */
+            /* =========================
+               VERIFICATION GUIDE YES
+            ========================= */
 
             if (
                 interaction.isButton() &&
                 interaction.customId ===
                     "verification_guide_yes"
             ) {
-                const guide =
+                const embed =
                     new EmbedBuilder()
                         .setColor(0x00ff00)
                         .setTitle(
-                            "Torn HQ Server Channels"
+                            "Torn HQ Server Guide"
                         )
                         .setDescription(
-                            "Here are the server channels available to you.\n\n" +
-                            "<#ENTER_VERIFICATION_CHANNEL_ID> - Verification\n\n" +
-                            "<#UNLOCK_SERVICE_CHANNEL_ID> - Unlock service roles\n\n" +
-                            "<#ORDER_SERVICE_CHANNEL_ID> - Order Torn HQ services"
+                            `Here are the important channels:\n\n` +
+                            `🔐 Verification: <#ENTER_VERIFICATION_CHANNEL_ID>\n\n` +
+                            `🔓 Service Roles: <#UNLOCK_SERVICE_CHANNEL_ID>\n\n` +
+                            `📋 Order Service: <#ORDER_SERVICE_CHANNEL_ID>`
                         );
 
                 await interaction.update({
-                    embeds: [guide],
+                    embeds: [embed],
                     components: []
                 });
 
@@ -235,24 +248,19 @@ module.exports = {
             }
 
 
-            /*
-             * VERIFICATION GUIDE NO
-             */
+            /* =========================
+               VERIFICATION GUIDE NO
+            ========================= */
 
             if (
                 interaction.isButton() &&
                 interaction.customId ===
                     "verification_guide_no"
             ) {
-                const goodbye =
-                    new EmbedBuilder()
-                        .setColor(0x00ff00)
-                        .setDescription(
-                            `Have Fun <@${interaction.user.id}>! ☺️`
-                        );
-
                 await interaction.update({
-                    embeds: [goodbye],
+                    content:
+                        `Have Fun <@${interaction.user.id}>! ☺️`,
+                    embeds: [],
                     components: []
                 });
 
@@ -260,9 +268,9 @@ module.exports = {
             }
 
 
-            /*
-             * SERVICE ROLE BUTTONS
-             */
+            /* =========================
+               SERVICE ROLE BUTTONS
+            ========================= */
 
             if (
                 interaction.isButton() &&
@@ -275,50 +283,74 @@ module.exports = {
                         interaction.user.id
                     )
                 ) {
-                    return interaction.reply({
+                    await interaction.reply({
                         content:
                             "You must verify your Torn account first.",
                         ephemeral: true
                     });
+
+                    return;
                 }
+
+                const service =
+                    interaction.customId.replace(
+                        "service_",
+                        ""
+                    );
 
                 const descriptions = {
 
-                    service_loss:
+                    loss:
                         "Start a fight with the buyer or target, intentionally lose, then use a Small Aid Kit for 20 minutes or less hospital time, or a First Aid Kit for over 30 minutes. Repeat until you complete the number of losses in your claimed contract.",
 
-                    service_escape:
+                    escape:
                         "Coming Soon",
 
-                    service_bounty:
+                    bounty:
                         "Once you claim a contract, the target's profile link will appear. Place a bounty on the target using the exact contract price. Reminder: Anonymous bounties will not be paid unless the contract is specifically marked as anonymous.",
 
-                    service_detective:
+                    detective:
                         "Coming Soon"
                 };
 
-                const description =
-                    descriptions[
-                        interaction.customId
-                    ];
+                const roleMap = {
+
+                    loss:
+                        config.LOSS_SELLER_ROLE_ID,
+
+                    escape:
+                        config.ESCAPE_SELLER_ROLE_ID,
+
+                    bounty:
+                        config.BOUNTY_PLACER_ROLE_ID,
+
+                    detective:
+                        config.DETECTIVE_ROLE_ID
+                };
+
+                const roleId =
+                    roleMap[service];
+
+                if (!roleId) {
+                    await interaction.reply({
+                        content:
+                            descriptions[service] ||
+                            "Coming Soon",
+                        ephemeral: true
+                    });
+
+                    return;
+                }
 
                 await giveServiceRole(
                     interaction.member,
-                    interaction.customId
+                    roleId
                 );
 
                 await interaction.reply({
                     content:
-                        `You received the ${interaction.component.label} role.`,
-
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor(0x00ff00)
-                            .setDescription(
-                                description
-                            )
-                    ],
-
+                        descriptions[service] ||
+                        "Service role updated.",
                     ephemeral: true
                 });
 
@@ -326,9 +358,9 @@ module.exports = {
             }
 
 
-            /*
-             * ORDER LOSSES
-             */
+            /* =========================
+               ORDER LOSSES
+            ========================= */
 
             if (
                 interaction.isButton() &&
@@ -340,23 +372,25 @@ module.exports = {
                         interaction.user.id
                     )
                 ) {
-                    return interaction.reply({
+                    await interaction.reply({
                         content:
                             "You must verify your Torn account first.",
                         ephemeral: true
                     });
+
+                    return;
                 }
 
                 const modal =
                     new ModalBuilder()
                         .setCustomId(
-                            "loss_order_modal"
+                            "order_losses_modal"
                         )
                         .setTitle(
                             "Order Losses"
                         );
 
-                const amount =
+                const amountInput =
                     new TextInputBuilder()
                         .setCustomId(
                             "loss_amount"
@@ -376,56 +410,36 @@ module.exports = {
 
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(
-                        amount
+                        amountInput
                     )
                 );
 
-                await interaction.showModal(
-                    modal
-                );
-
+                await interaction.showModal(modal);
                 return;
             }
 
-
-            /*
-             * LOSS ORDER MODAL
-             */
-
             if (
                 interaction.isModalSubmit() &&
-                interaction.customId ===
-                    "loss_order_modal"
+                interaction.customId === "order_losses_modal"
             ) {
-                const value =
+                const amountText =
                     interaction.fields
-                        .getTextInputValue(
-                            "loss_amount"
-                        )
+                        .getTextInputValue("loss_amount")
                         .trim();
 
-                if (
-                    !/^\d+$/.test(value)
-                ) {
-                    return interaction.reply({
-                        content:
-                            "Please enter a valid whole number between 1 and 999,999,999.",
-                        ephemeral: true
-                    });
-                }
-
-                const amount =
-                    Number(value);
+                const amount = Number(amountText);
 
                 if (
+                    !Number.isInteger(amount) ||
                     amount < 1 ||
                     amount > 999999999
                 ) {
-                    return interaction.reply({
+                    await interaction.reply({
                         content:
-                            "The amount must be between 1 and 999,999,999.",
+                            "Please enter a valid whole number of losses.",
                         ephemeral: true
                     });
+                    return;
                 }
 
                 await interaction.deferReply({
@@ -441,33 +455,23 @@ module.exports = {
 
                 await interaction.editReply({
                     content:
-                        `Your loss order ticket has been created: ${channel}`
+                        `Your loss order has been created: ${channel}`
                 });
 
                 return;
             }
 
-
-            /*
-             * CLAIM TICKET
-             */
-
             if (
                 interaction.isButton() &&
-                interaction.customId.startsWith(
-                    "claim_ticket_"
-                )
+                interaction.customId.startsWith("claim_ticket_")
             ) {
-                if (
-                    !isStaff(
-                        interaction.member
-                    )
-                ) {
-                    return interaction.reply({
+                if (!isStaff(interaction.member)) {
+                    await interaction.reply({
                         content:
-                            "You do not have permission to claim this ticket.",
+                            "Only staff can claim tickets.",
                         ephemeral: true
                     });
+                    return;
                 }
 
                 const ticketId =
@@ -478,25 +482,73 @@ module.exports = {
                         )
                     );
 
-                const ticket =
-                    getTicket(ticketId);
+                const ticket = getTicket(ticketId);
 
                 if (!ticket) {
-                    return interaction.reply({
-                        content:
-                            "Ticket not found.",
+                    await interaction.reply({
+                        content: "Ticket not found.",
                         ephemeral: true
                     });
+                    return;
                 }
 
-                if (
-                    ticket.claimer_discord_id
-                ) {
-                    return interaction.reply({
+                if (ticket.claimer_discord_id) {
+                    await interaction.reply({
                         content:
                             "This ticket has already been claimed.",
                         ephemeral: true
                     });
+                    return;
+                }
+
+                await interaction.deferReply();
+
+                const staffUser =
+                    getUser(interaction.user.id);
+
+                if (!staffUser) {
+                    await interaction.editReply({
+                        content:
+                            "Your Discord account is not verified."
+                    });
+                    return;
+                }
+
+                let apiKey;
+
+                try {
+                    apiKey =
+                        decrypt(
+                            staffUser.encrypted_api_key,
+                            config.ENCRYPTION_KEY
+                        );
+                } catch {
+                    await interaction.editReply({
+                        content:
+                            "Unable to decrypt your Torn API key."
+                    });
+                    return;
+                }
+
+                let tornUser;
+
+                try {
+                    tornUser =
+                        await getTornUser(
+                            apiKey,
+                            staffUser.torn_id
+                        );
+                } catch (error) {
+                    console.error(
+                        "Torn API error:",
+                        error
+                    );
+
+                    await interaction.editReply({
+                        content:
+                            "Unable to retrieve your Torn City information."
+                    });
+                    return;
                 }
 
                 claimTicket(
@@ -507,106 +559,62 @@ module.exports = {
                 await interaction.channel.permissionOverwrites.edit(
                     config.STAFF_ROLE_ID,
                     {
-                        SendMessages: false
+                        ViewChannel: true,
+                        SendMessages: false,
+                        ReadMessageHistory: true
                     }
-                );
+                ).catch(() => {});
 
                 await interaction.channel.permissionOverwrites.edit(
                     interaction.user.id,
                     {
-                        SendMessages: true
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ReadMessageHistory: true
                     }
-                );
+                ).catch(() => {});
 
                 await interaction.channel.permissionOverwrites.edit(
                     config.ADMIN_ROLE_ID,
                     {
-                        SendMessages: true
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ReadMessageHistory: true,
+                        ManageChannels: true
                     }
-                );
+                ).catch(() => {});
 
-                const owner =
-                    await interaction.guild.members.fetch(
-                        ticket.owner_discord_id
-                    );
-
-                const amount =
-                    Number(
-                        ticket.price
-                    ).toLocaleString();
-
-                const staff =
-                    getUser(
-                        interaction.user.id
-                    );
-
-                if (!staff) {
-                    return interaction.reply({
-                        content:
-                            "The staff member is not verified with a Torn API key.",
-                        ephemeral: true
-                    });
-                }
-
-                let staffTorn;
-
-                try {
-                    const staffApiKey =
-                        decrypt(
-                            staff.encrypted_api_key,
-                            config.ENCRYPTION_KEY
-                        );
-
-                    staffTorn =
-                        await getTornUser(
-                            staffApiKey,
-                            staff.torn_id
-                        );
-
-                } catch (error) {
-
-                    console.error(
-                        "Torn API error:",
-                        error.message
-                    );
-
-                    return interaction.reply({
-                        content:
-                            "Unable to retrieve the staff member's Torn information.",
-                        ephemeral: true
-                    });
-                }
-
-                const profileImage =
-                    staffTorn.profilePicture ||
-                    interaction.user.displayAvatarURL({
-                        extension: "png",
-                        size: 256
-                    });
-
-                const staffEmbed =
+                const informationEmbed =
                     new EmbedBuilder()
                         .setColor(0x00ff00)
                         .setTitle(
-                            `Tornuser [${staffTorn.id}]`
-                        )
-                        .setThumbnail(
-                            profileImage
+                            "Staff's Torn City Information"
                         )
                         .setDescription(
-                            `**Profile Link:** ${staffTorn.profileLink}\n` +
-                            `**Status:** ${staffTorn.status}\n` +
-                            `**Faction:** ${staffTorn.faction}\n` +
-                            `**Life:** ${staffTorn.lifeCurrent} / ${staffTorn.lifeMaximum}\n\n` +
-                            `Please send the **${amount}** to the staff. ` +
-                            `You can click the profile link or search the name or ID of the staff.\n\n` +
-                            `Do you want <@${interaction.user.id}> to guide you for the order payment?`
+                            `**tornUser ${tornUser.id}**\n\n` +
+                            `**Profile Picture:**\n` +
+                            `${tornUser.profilePicture || "N/A"}\n\n` +
+                            `**Profile Link:**\n` +
+                            `${tornUser.profileLink}\n\n` +
+                            `**Status:**\n` +
+                            `${tornUser.status}\n\n` +
+                            `**Life:**\n` +
+                            `${tornUser.lifeCurrent} / ${tornUser.lifeMaximum}\n\n` +
+                            `**Faction:**\n` +
+                            `${tornUser.faction}\n\n` +
+                            `**Property:**\n` +
+                            `${tornUser.property || "N/A"}`
                         );
 
-                const buttons =
+                if (tornUser.profilePicture) {
+                    informationEmbed.setThumbnail(
+                        tornUser.profilePicture
+                    );
+                }
+
+                const paymentButtons =
                     new ActionRowBuilder()
                         .addComponents(
-
                             new ButtonBuilder()
                                 .setCustomId(
                                     `payment_help_yes_${ticketId}`
@@ -622,24 +630,21 @@ module.exports = {
                                 )
                                 .setLabel("No")
                                 .setStyle(
-                                    ButtonStyle.Secondary
+                                    ButtonStyle.Danger
                                 )
                         );
 
-                await interaction.reply({
-                    content:
-                        `<@${interaction.user.id}> <@${ticket.owner_discord_id}>`,
-                    embeds: [staffEmbed],
-                    components: [buttons]
+                await interaction.editReply({
+                    embeds: [
+                        informationEmbed
+                    ],
+                    components: [
+                        paymentButtons
+                    ]
                 });
 
                 return;
             }
-
-
-            /*
-             * PAYMENT HELP YES
-             */
 
             if (
                 interaction.isButton() &&
@@ -651,4 +656,259 @@ module.exports = {
                     Number(
                         interaction.customId.replace(
                             "payment_help_yes_",
-           
+                            ""
+                        )
+                    );
+
+                const ticket = getTicket(ticketId);
+
+                if (!ticket) {
+                    await interaction.reply({
+                        content:
+                            "Ticket not found.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                if (
+                    interaction.user.id !==
+                    ticket.owner_discord_id
+                ) {
+                    await interaction.reply({
+                        content:
+                            "Only the buyer who created this ticket can use these buttons.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                await interaction.update({
+                    components: []
+                });
+
+                const helpMessage =
+                    await interaction.channel.send({
+                        content:
+                            `<@${ticket.claimer_discord_id}>, the buyer needs help.`
+                    });
+
+                setTimeout(
+                    async () => {
+                        await helpMessage
+                            .delete()
+                            .catch(() => {});
+                    },
+                    60000
+                );
+
+                return;
+            }
+
+            if (
+                interaction.isButton() &&
+                interaction.customId.startsWith(
+                    "payment_help_no_"
+                )
+            ) {
+                const ticketId =
+                    Number(
+                        interaction.customId.replace(
+                            "payment_help_no_",
+                            ""
+                        )
+                    );
+
+                const ticket = getTicket(ticketId);
+
+                if (!ticket) {
+                    await interaction.reply({
+                        content:
+                            "Ticket not found.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                if (
+                    interaction.user.id !==
+                    ticket.owner_discord_id
+                ) {
+                    await interaction.reply({
+                        content:
+                            "Only the buyer who created this ticket can use these buttons.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                await interaction.update({
+                    components: []
+                });
+
+                await interaction.followUp({
+                    content:
+                        "Please proceed using the link to send the money to the staff, thank you for using the Torn HQ Service!",
+                    ephemeral: true
+                });
+
+                await interaction.channel.permissionOverwrites.edit(
+                    ticket.owner_discord_id,
+                    {
+                        SendMessages: false
+                    }
+                ).catch(() => {});
+
+                return;
+            }
+
+            if (
+                interaction.isButton() &&
+                interaction.customId.startsWith(
+                    "close_ticket_"
+                )
+            ) {
+                if (!isStaff(interaction.member)) {
+                    await interaction.reply({
+                        content:
+                            "Only staff can close tickets.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const ticketId =
+                    Number(
+                        interaction.customId.replace(
+                            "close_ticket_",
+                            ""
+                        )
+                    );
+
+                const ticket = getTicket(ticketId);
+
+                if (!ticket) {
+                    await interaction.reply({
+                        content:
+                            "Ticket not found.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const modal =
+                    new ModalBuilder()
+                        .setCustomId(
+                            `close_ticket_modal_${ticketId}`
+                        )
+                        .setTitle(
+                            "Close Ticket"
+                        );
+
+                const reasonInput =
+                    new TextInputBuilder()
+                        .setCustomId(
+                            "close_reason"
+                        )
+                        .setLabel("Reason")
+                        .setPlaceholder(
+                            "Enter the reason for closing this ticket"
+                        )
+                        .setStyle(
+                            TextInputStyle.Paragraph
+                        )
+                        .setRequired(true)
+                        .setMaxLength(1000);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        reasonInput
+                    )
+                );
+
+                await interaction.showModal(modal);
+                return;
+            }
+
+            if (
+                interaction.isModalSubmit() &&
+                interaction.customId.startsWith(
+                    "close_ticket_modal_"
+                )
+            ) {
+                if (!isStaff(interaction.member)) {
+                    await interaction.reply({
+                        content:
+                            "Only staff can close tickets.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const ticketId =
+                    Number(
+                        interaction.customId.replace(
+                            "close_ticket_modal_",
+                            ""
+                        )
+                    );
+
+                const reason =
+                    interaction.fields
+                        .getTextInputValue(
+                            "close_reason"
+                        )
+                        .trim();
+
+                const ticket = getTicket(ticketId);
+
+                if (!ticket) {
+                    await interaction.reply({
+                        content:
+                            "Ticket not found.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                closeTicket(
+                    ticketId,
+                    reason
+                );
+
+                await interaction.reply({
+                    content:
+                        "This ticket will be closed in 10 seconds."
+                });
+
+                setTimeout(
+                    async () => {
+                        await interaction.channel
+                            .delete()
+                            .catch(() => {});
+                    },
+                    10000
+                );
+
+                return;
+            }
+
+        } catch (error) {
+            console.error("interactionCreate error:", error);
+
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp({
+                    content:
+                        "Something went wrong while processing this interaction.",
+                    ephemeral: true
+                }).catch(() => {});
+            } else {
+                await interaction.reply({
+                    content:
+                        "Something went wrong while processing this interaction.",
+                    ephemeral: true
+                }).catch(() => {});
+            }
+        }
+    }
+};
