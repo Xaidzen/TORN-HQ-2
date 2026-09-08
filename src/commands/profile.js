@@ -41,6 +41,34 @@ module.exports = {
             const lifeCurrent = profile.life?.current ?? 0;
             const lifeMaximum = profile.life?.maximum ?? 0;
 
+            const age =
+                profile.age ?? 'N/A';
+
+            const statusData =
+                profile.status || {};
+
+            let status = 'Offline';
+
+            if (
+                statusData.state === 'Traveling' ||
+                statusData.state === 'Traveling Abroad'
+            ) {
+                const country =
+                    statusData.description ||
+                    statusData.details ||
+                    '';
+
+                status = country
+                    ? `Flying ${country}`
+                    : 'Flying';
+            } else if (statusData.state === 'Online') {
+                status = 'Online';
+            } else if (statusData.state === 'Idle') {
+                status = 'Idle';
+            } else if (statusData.state) {
+                status = statusData.state;
+            }
+
             const factionName =
                 profile.faction?.faction_name ||
                 profile.faction?.name ||
@@ -73,8 +101,18 @@ module.exports = {
                 )
                 .addFields(
                     {
+                        name: 'Age',
+                        value: `${age}`,
+                        inline: false
+                    },
+                    {
                         name: 'Life',
                         value: `${lifeCurrent}/${lifeMaximum}`,
+                        inline: false
+                    },
+                    {
+                        name: 'Status',
+                        value: status,
                         inline: false
                     },
                     {
@@ -154,4 +192,4 @@ function getTornProfile(apiKey) {
 
         }).on('error', reject);
     });
-            }
+}
