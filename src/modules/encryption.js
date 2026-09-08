@@ -1,14 +1,15 @@
-const {
-    encrypt,
-    decrypt
-} = require("../utils/encryption");
+const { encrypt, decrypt } = require("./tornApi");
+const config = require("../utils/config");
+
+function encryptApiKey(apiKey) {
+    return encrypt(apiKey, config.ENCRYPTION_KEY);
+}
+
+function decryptApiKey(encryptedApiKey) {
+    return decrypt(encryptedApiKey, config.ENCRYPTION_KEY);
+}
 
 module.exports = {
-    encryptApiKey(apiKey) {
-        return encrypt(apiKey);
-    },
-
-    decryptApiKey(encryptedApiKey) {
-        return decrypt(encryptedApiKey);
-    }
+    encryptApiKey,
+    decryptApiKey
 };

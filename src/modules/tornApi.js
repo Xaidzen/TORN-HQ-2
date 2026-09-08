@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 
 const TORN_API = "https://api.torn.com";
+const TORN_API_V2 = "https://api.torn.com/v2";
 
 function encrypt(text, secret) {
     const iv = crypto.randomBytes(16);
@@ -29,8 +30,7 @@ function encrypt(text, secret) {
 }
 
 function decrypt(data, secret) {
-    const [ivHex, encryptedHex] =
-        data.split(":");
+    const [ivHex, encryptedHex] = data.split(":");
 
     const key = crypto
         .createHash("sha256")
@@ -59,13 +59,11 @@ async function tornRequest(
     selection,
     id = null
 ) {
-    const url =
-        id
-            ? `${TORN_API}/user/${id}/?selections=${selection}&key=${encodeURIComponent(apiKey)}`
-            : `${TORN_API}/user/?selections=${selection}&key=${encodeURIComponent(apiKey)}`;
+    const url = id
+        ? `${TORN_API}/user/${id}/?selections=${selection}&key=${encodeURIComponent(apiKey)}`
+        : `${TORN_API}/user/?selections=${selection}&key=${encodeURIComponent(apiKey)}`;
 
-    const response =
-        await fetch(url);
+    const response = await fetch(url);
 
     if (!response.ok) {
         throw new Error(
@@ -73,8 +71,7 @@ async function tornRequest(
         );
     }
 
-    const data =
-        await response.json();
+    const data = await response.json();
 
     if (data.error) {
         throw new Error(
@@ -85,13 +82,39 @@ async function tornRequest(
     return data;
 }
 
+async function tornV2Request(
+    apiKey,
+    endpoint,
+    tornId
+) {
+    const url =
+        `${TORN_API_V2}/user/${tornId}/${endpoint}?key=${encodeURIComponent(apiKey)}`;
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error(
+            `Torn API v2 HTTP ${response.status}`
+        );
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+        throw new Error(
+            `Torn API v2 ${data.error.code}: ${data.error.error}`
+        );
+    }
+
+    return data;
+}
+
 async function verifyApiKey(apiKey) {
     try {
-        const data =
-            await tornRequest(
-                apiKey.trim(),
-                "basic"
-            );
+        const data = await tornRequest(
+            apiKey.trim(),
+            "basic"
+        );
 
         if (
             !data.player_id ||
@@ -123,99 +146,185 @@ async function getTornUser(
     apiKey,
     tornId
 ) {
-    const basic =
-        await tornRequest(
-            apiKey,
-            "basic",
-            tornId
-        );
+    const basic = await tornRequest(
+        apiKey,
+        "basic",
+        tornId
+    );
 
-    const profile =
-        await tornRequest(
-            apiKey,
-            "profile",
-            tornId
-        ).catch(() => null);
+    const profile = await tornV2Request(
+        apiKey,
+        "profile",
+        tornId
+    );
 
-    const faction =
-        await tornRequest(
-            apiKey,
-            "faction",
-            tornId
-        ).catch(() => null);
+    const faction = await tornV2Request(
+        apiKey,
+        "faction",
+        tornId
+    ).catch(() => null);
 
-    const factionName =
-        faction?.faction?.name ||
-        faction?.name ||
+    const property = await tornV2Request(
+        apiKey,
+        "property",
+        tornId
+    ).catch(() => null);
+
+    /*
+     * Torn v2 responses are wrapped
+     * inside a data object.
+     */
+    const profileData =
+        profile?.profile ||
+        profile?.data ||
+        profile ||
+        {};
+
+    const factionData =
+        faction?.faction ||
+        faction?.data ||
+        faction ||
+        {};
+
+    const propertyData =
+        property?.property ||
+        property?.data ||
+        property ||
+        {};
+
+    /*
+     * Username
+     */
+    const username =
+        profileData?.name ||
+        basic?.name ||
+        "Unknown";
+
+    /*
+     * Age
+     */
+    const age =
+        profileData?.age ??
         "N/A";
 
-    const life =
-        profile?.life ||
-        basic?.life ||
-        null;
+    /*
+     * Status
+     */
+    const statusData =
+        profileData?.status ||
+        {};
 
-    const status =
-        profile?.status ||
-        basic?.status ||
-        null;
-
-    let statusText = "Offline";
+    let status = "Offline";
 
     if (
-        typeof status === "object" &&
-        status !== null
+        statusData?.state === "Traveling" ||
+        statusData?.state === "Traveling Abroad"
     ) {
-        statusText =
-            status.state ||
-            "Offline";
+        const country =
+            statusData?.description ||
+            statusData?.details ||
+            "";
+
+        status = country
+            ? `Flying ${country}`
+            : "Flying";
     } else if (
-        Array.isArray(status)
+        statusData?.state === "Online"
     ) {
-        statusText =
-            status[0] ||
-            "Offline";
+        status = "Online";
     } else if (
-        typeof status === "string"
+        statusData?.state === "Idle"
     ) {
-        statusText =
-            status;
+        status = "Idle";
+    } else if (
+        statusData?.state
+    ) {
+        status = statusData.state;
     }
 
+    /*
+     * Faction
+     */
+    const factionName =
+        factionData?.name ||
+        factionData?.faction?.name ||
+        "None";
+
+    /*
+     * Property
+     */
+    const propertyName =
+        propertyData?.name ||
+        propertyData?.property?.name ||
+        profileData?.property?.name ||
+        "None";
+
+    /*
+     * Life
+     */
+    const life =
+        profileData?.life ||
+        basic?.life ||
+        {};
+
+    /*
+     * Friends and enemies
+     */
+    const friendsCount =
+        typeof profileData?.friends === "number"
+            ? profileData.friends
+            : profileData?.friends?.count ??
+              profileData?.friends?.total ??
+              0;
+
+    const enemiesCount =
+        typeof profileData?.enemies === "number"
+            ? profileData.enemies
+            : profileData?.enemies?.count ??
+              profileData?.enemies?.total ??
+              0;
+
+    /*
+     * Profile picture
+     */
     const profilePicture =
-        profile?.profile_image ||
-        profile?.profile_image_url ||
-        profile?.image ||
+        profileData?.image ||
+        profileData?.profile_image ||
+        profileData?.profile_image_url ||
         null;
 
     return {
         id: String(
+            profileData?.id ||
             basic?.player_id ||
-            profile?.player_id ||
             tornId
         ),
 
-        username:
-            basic?.name ||
-            profile?.name ||
-            "Unknown",
+        username,
+
+        age,
+
+        status,
 
         profileLink:
             `https://www.torn.com/profiles.php?XID=${tornId}`,
 
         profilePicture,
 
-        status: statusText,
-
         faction: factionName,
+
+        property: propertyName,
+
+        friendsCount,
+
+        enemiesCount,
 
         lifeCurrent:
             life?.current ??
-            life?.now ??
             "N/A",
 
         lifeMaximum:
             life?.maximum ??
-            life?.max ??
             "N/A"
     };
 }
