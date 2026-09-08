@@ -4,6 +4,7 @@ const {
 } = require('discord.js');
 
 const https = require('https');
+const db = require('../modules/database');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,58 +17,43 @@ module.exports = {
                 .setRequired(false)
         ),
 
-    async execute(interaction, db) {
+    async execute(interaction) {
         await interaction.deferReply();
 
         const targetDiscordUser =
             interaction.options.getUser('user') || interaction.user;
 
-        // Get the Torn API key from your database
         const row = db.prepare(`
-            SELECT api_key
+            SELECT torn_id, torn_username, encrypted_api_key
             FROM users
             WHERE discord_id = ?
         `).get(targetDiscordUser.id);
 
-        if (!row || !row.api_key) {
+        if (!row || !row.encrypted_api_key) {
             return interaction.editReply({
                 content: `${targetDiscordUser} does not have a Torn API key connected.`
             });
         }
 
         try {
-            const profile = await getTornProfile(row.api_key);
+            const { decrypt } = require('../modules/tornApi');
+            const config = require('../utils/config');
 
-            const lifeCurrent = profile.life?.current ?? 0;
-            const lifeMaximum = profile.life?.maximum ?? 0;
+            const apiKey = decrypt(
+                row.encrypted_api_key,
+                config.ENCRYPTION_KEY
+            );
 
-            const age =
-                profile.age ?? 'N/A';
+            const profile = await getTornProfile(
+                apiKey,
+                row.torn_id
+            );
 
-            const statusData =
-                profile.status || {};
+            const lifeCurrent =
+                profile.life?.current ?? 0;
 
-            let status = 'Offline';
-
-            if (
-                statusData.state === 'Traveling' ||
-                statusData.state === 'Traveling Abroad'
-            ) {
-                const country =
-                    statusData.description ||
-                    statusData.details ||
-                    '';
-
-                status = country
-                    ? `Flying ${country}`
-                    : 'Flying';
-            } else if (statusData.state === 'Online') {
-                status = 'Online';
-            } else if (statusData.state === 'Idle') {
-                status = 'Idle';
-            } else if (statusData.state) {
-                status = statusData.state;
-            }
+            const lifeMaximum =
+                profile.life?.maximum ?? 0;
 
             const factionName =
                 profile.faction?.faction_name ||
@@ -75,29 +61,71 @@ module.exports = {
                 'None';
 
             const propertyName =
+                profile.property?.name ||
                 profile.property ||
                 profile.property_name ||
                 'None';
 
             const friends =
-                profile.friends?.length ??
-                profile.friends_count ??
-                0;
+                typeof profile.friends === 'number'
+                    ? profile.friends
+                    : profile.friends?.length ??
+                      profile.friends_count ??
+                      0;
 
             const enemies =
-                profile.enemies?.length ??
-                profile.enemies_count ??
-                0;
+                typeof profile.enemies === 'number'
+                    ? profile.enemies
+                    : profile.enemies?.length ??
+                      profile.enemies_count ??
+                      0;
+
+            const age =
+                profile.age ?? 'N/A';
+
+            let status = 'Offline';
+
+            if (profile.status) {
+                if (
+                    profile.status.state === 'Traveling' ||
+                    profile.status.state === 'Traveling Abroad'
+                ) {
+                    const country =
+                        profile.status.description ||
+                        profile.status.details ||
+                        '';
+
+                    status = country
+                        ? `Flying ${country}`
+                        : 'Flying';
+                } else if (
+                    profile.status.state === 'Online'
+                ) {
+                    status = 'Online';
+                } else if (
+                    profile.status.state === 'Idle'
+                ) {
+                    status = 'Idle';
+                } else if (
+                    profile.status.state
+                ) {
+                    status = profile.status.state;
+                }
+            }
 
             const embed = new EmbedBuilder()
-                .setTitle('Information of user')
+                .setTitle(
+                    `Information of ${targetDiscordUser.username}`
+                )
                 .setDescription(
-                    `**user [${profile.player_id || profile.player_id}] - ${profile.name || targetDiscordUser.username} [${profile.player_id}]**`
+                    `**${profile.name || row.torn_username} [${profile.player_id || row.torn_id}]**`
                 )
                 .setThumbnail(
                     profile.profile_image ||
                     profile.profile_image_url ||
-                    targetDiscordUser.displayAvatarURL({ dynamic: true })
+                    targetDiscordUser.displayAvatarURL({
+                        dynamic: true
+                    })
                 )
                 .addFields(
                     {
@@ -137,7 +165,7 @@ module.exports = {
                     }
                 )
                 .setFooter({
-                    text: `Torn ID: ${profile.player_id}`
+                    text: `Torn ID: ${profile.player_id || row.torn_id}`
                 })
                 .setTimestamp();
 
@@ -146,21 +174,25 @@ module.exports = {
             });
 
         } catch (error) {
-            console.error('Profile command error:', error);
+            console.error(
+                'Profile command error:',
+                error
+            );
 
             return interaction.editReply({
-                content: 'Unable to retrieve this Torn profile. Please check the connected API key.'
+                content:
+                    'Unable to retrieve this Torn profile. Please check the connected API key.'
             });
         }
     }
 };
 
 
-function getTornProfile(apiKey) {
+function getTornProfile(apiKey, tornId) {
     return new Promise((resolve, reject) => {
 
         const url =
-            `https://api.torn.com/user/?selections=profile&key=${encodeURIComponent(apiKey)}`;
+            `https://api.torn.com/user/${tornId}/?selections=profile&key=${encodeURIComponent(apiKey)}`;
 
         https.get(url, response => {
 
@@ -173,7 +205,8 @@ function getTornProfile(apiKey) {
             response.on('end', () => {
 
                 try {
-                    const result = JSON.parse(data);
+                    const result =
+                        JSON.parse(data);
 
                     if (result.error) {
                         return reject(
