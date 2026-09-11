@@ -10,7 +10,17 @@ const path = require("path");
 
 const config = require("./utils/config");
 const logger = require("./utils/logger");
-const { checkVerifiedUsers } = require("./modules/verificationMonitor");
+const {
+    checkVerifiedUsers
+} = require("./modules/verificationMonitor");
+
+const {
+    startClaimTracker
+} = require("./modules/claimTracker");
+
+const {
+    startTornAttackTracker
+} = require("./modules/tornAttackTracker");
 
 const client = new Client({
     intents: [
@@ -48,6 +58,13 @@ for (const file of commandFiles) {
             path.join(commandsPath, file)
         );
 
+    if (!command.data || !command.execute) {
+        logger.info(
+            `Skipped invalid command: ${file}`
+        );
+        continue;
+    }
+
     client.commands.set(
         command.data.name,
         command
@@ -77,6 +94,13 @@ for (const file of eventFiles) {
             path.join(eventsPath, file)
         );
 
+    if (!event.name || !event.execute) {
+        logger.info(
+            `Skipped invalid event: ${file}`
+        );
+        continue;
+    }
+
     if (event.once) {
         client.once(
             event.name,
@@ -100,26 +124,67 @@ for (const file of eventFiles) {
     );
 }
 
-client.login(
-    config.DISCORD_TOKEN
-).then(() => {
+/*
+ * Discord ready
+ */
+
+client.once("ready", () => {
+    console.log(
+        `${client.user.tag} is online.`
+    );
+
+    /*
+     * Verification monitor
+     */
 
     console.log(
         "Verification monitor started."
     );
 
-    // Check verified users every 5 minutes
     setInterval(
         async () => {
-            await checkVerifiedUsers(client);
+            try {
+                await checkVerifiedUsers(client);
+            } catch (error) {
+                console.error(
+                    "Verification monitor error:",
+                    error
+                );
+            }
         },
         5 * 60 * 1000
     );
 
-    // Run once immediately
     checkVerifiedUsers(client);
 
-}).catch(error => {
+    /*
+     * Loss claim tracker
+     */
+
+    startClaimTracker(client);
+
+    /*
+     * Torn City attack tracker
+     */
+
+    startTornAttackTracker();
+
+    console.log(
+        "Contract system started."
+    );
+
+    console.log(
+        "Torn attack tracker started."
+    );
+});
+
+/*
+ * Login
+ */
+
+client.login(
+    config.DISCORD_TOKEN
+).catch(error => {
     console.error(
         "Discord login failed:",
         error
