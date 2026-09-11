@@ -1,177 +1,196 @@
-const axios = require('axios');
-
-const database = require('./database');
-const claimTracker = require('./claimTracker');
+const contractSystem = require('./contractSystem');
 
 const TORN_API = 'https://api.torn.com/v2';
 
-async function getAttackLog(apiKey) {
-    try {
-        const response = await axios.get(
-            `${TORN_API}/user/attacks`,
-            {
-                headers: {
-                    Authorization: `ApiKey ${apiKey}`
-                },
-                params: {
-                    limit: 100
-                },
-                timeout: 10000
-            }
-        );
+const POLL_INTERVAL = 15000;
 
-        return response.data.attacks || [];
-    } catch (error) {
-        console.error(
-            'Torn attack log error:',
-            error.response?.data || error.message
-        );
+async function tornRequest(apiKey, endpoint) {
+    const url =
+        `${TORN_API}${endpoint}` +
+        `&key=${encodeURIComponent(apiKey)}`;
 
-        return [];
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error(
+            `Torn API HTTP ${response.status}`
+        );
     }
+
+    const data = await response.json();
+
+    if (data.error) {
+        throw new Error(
+            `Torn API ${data.error.code}: ${data.error.error}`
+        );
+    }
+
+    return data;
 }
 
-function isValidLoss(attack, claim) {
-    const attackerId =
-        attack.attacker?.id ??
-        attack.attacker_id;
+/*
+ * Connect this function to your existing verification database.
+ *
+ * It must return the verified user's Torn API key.
+ */
+async function getUserApiKey(userId) {
+    /*
+     * Replace this with your existing database function.
+     *
+     * Example:
+     *
+     * const database = require('./database');
+     * return database.getApiKey(userId);
+     */
+
+    return null;
+}
+
+async function getAttackLog(apiKey) {
+    /*
+     * Torn user attack log.
+     *
+     * The API response is expected to contain the user's
+     * recent attacks.
+     */
+    return tornRequest(
+        apiKey,
+        '/user/?selections=attacklog'
+    );
+}
+
+function isLossAgainstTarget(attack, targetId) {
+    if (!attack) {
+        return false;
+    }
 
     const defenderId =
-        attack.defender?.id ??
-        attack.defender_id;
+        String(
+            attack.defender_id ??
+            attack.defender?.id ??
+            attack.target_id ??
+            ''
+        );
 
-    const result =
-        String(attack.result || '').toLowerCase();
-
-    const attackTime =
-        Number(attack.started ?? attack.timestamp ?? attack.time);
-
-    if (String(attackerId) !== String(claim.torn_user_id)) {
+    if (defenderId !== String(targetId)) {
         return false;
     }
 
-    if (String(defenderId) !== String(claim.target_id)) {
-        return false;
-    }
+    const result = String(
+        attack.result ??
+        attack.result_text ??
+        attack.outcome ??
+        ''
+    ).toLowerCase();
 
-    if (!result.includes('lost')) {
-        return false;
-    }
+    return (
+        result.includes('lost') ||
+        result.includes('loss') ||
+        result.includes('lost the attack')
+    );
+}
 
-    if (!attackTime) {
-        return false;
-    }
+function usesAllowedWeapon(attack) {
+    const weapon = String(
+        attack.weapon_name ??
+        attack.weapon ??
+        ''
+    ).toLowerCase();
 
-    const attackMilliseconds =
-        attackTime < 10000000000
-            ? attackTime * 1000
-            : attackTime;
-
-    if (attackMilliseconds < claim.started_at) {
-        return false;
-    }
-
-    if (attackMilliseconds > claim.deadline) {
-        return false;
-    }
-
-    return true;
+    return (
+        weapon.includes('pillow') ||
+        weapon.includes('plastic sword')
+    );
 }
 
 async function checkClaim(claim) {
-    if (Date.now() > claim.deadline) {
-        database.prepare(`
-            UPDATE claims
-            SET status = 'expired'
-            WHERE id = ?
-            AND status = 'active'
-        `).run(claim.id);
+    const apiKey = await getUserApiKey(
+        claim.userId
+    );
 
+    if (!apiKey) {
         return;
     }
 
-    const apiKeyRow = database.prepare(`
-        SELECT api_key
-        FROM users
-        WHERE torn_user_id = ?
-        LIMIT 1
-    `).get(claim.torn_user_id);
+    const response = await getAttackLog(apiKey);
 
-    if (!apiKeyRow?.api_key) {
-        console.log(
-            `No API key found for Torn user ${claim.torn_user_id}`
-        );
+    const attacks =
+        response.attacks ||
+        response.attacklog ||
+        [];
 
-        return;
-    }
-
-    const attacks = await getAttackLog(apiKeyRow.api_key);
+    let qualifyingLosses = 0;
 
     for (const attack of attacks) {
-        if (!isValidLoss(attack, claim)) {
+        if (!isLossAgainstTarget(
+            attack,
+            claim.targetId
+        )) {
             continue;
         }
 
-        const attackId =
-            attack.id ??
-            attack.attack_id;
-
-        if (!attackId) {
+        if (!usesAllowedWeapon(attack)) {
             continue;
         }
 
-        const updatedClaim =
-            claimTracker.addCompletedLoss(
-                claim.id,
-                attackId
-            );
+        qualifyingLosses++;
+    }
 
-        if (!updatedClaim) {
-            continue;
-        }
+    if (qualifyingLosses <= claim.completedLosses) {
+        return;
+    }
 
-        console.log(
-            `Claim #${updatedClaim.id}: ` +
-            `${updatedClaim.amount_completed}/` +
-            `${updatedClaim.amount_claimed}`
+    const newProgress =
+        Math.min(
+            qualifyingLosses,
+            claim.amountClaimed
         );
 
-        if (
-            updatedClaim.status === 'completed'
-        ) {
-            console.log(
-                `Claim #${updatedClaim.id} completed.`
+    const updated =
+        contractSystem.updateClaimProgress(
+            claim.id,
+            newProgress
+        );
+
+    return updated;
+}
+
+async function checkAllActiveClaims() {
+    const data = contractSystem.loadData();
+
+    const activeClaims = data.claims.filter(
+        claim =>
+            ['active', 'tracking'].includes(
+                claim.status
+            )
+    );
+
+    for (const claim of activeClaims) {
+        try {
+            await checkClaim(claim);
+        } catch (error) {
+            console.error(
+                `[TORN ATTACK TRACKER] ${claim.id}`,
+                error.message
             );
         }
     }
 }
 
-async function checkAllClaims() {
-    const claims = claimTracker.getActiveClaims();
+function startTornAttackTracker() {
+    console.log(
+        '[TORN ATTACK TRACKER] Started.'
+    );
 
-    for (const claim of claims) {
-        await checkClaim(claim);
-    }
-}
-
-function startTracker() {
-    console.log('Torn attack tracker started.');
-
-    checkAllClaims();
-
-    setInterval(() => {
-        checkAllClaims().catch(error => {
-            console.error(
-                'Attack tracker error:',
-                error
-            );
-        });
-    }, 15000);
+    setInterval(
+        checkAllActiveClaims,
+        POLL_INTERVAL
+    );
 }
 
 module.exports = {
-    getAttackLog,
+    startTornAttackTracker,
     checkClaim,
-    checkAllClaims,
-    startTracker
+    getAttackLog,
+    getUserApiKey
 };
