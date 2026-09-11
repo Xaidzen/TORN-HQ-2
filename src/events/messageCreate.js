@@ -1,5 +1,10 @@
 const config = require("../utils/config");
 
+const {
+    getTicketByChannel,
+    saveMessage
+} = require("../modules/ticketSystem");
+
 module.exports = {
     name: "messageCreate",
 
@@ -7,6 +12,42 @@ module.exports = {
         if (message.author.bot) {
             return;
         }
+
+        /*
+         * =========================
+         * TICKET MESSAGE LOGGING
+         * =========================
+         */
+
+        try {
+            const ticket =
+                getTicketByChannel(message.channelId);
+
+            if (ticket && !ticket.closed_at) {
+                const content =
+                    message.content?.trim();
+
+                if (content) {
+                    saveMessage(
+                        ticket.ticket_id,
+                        message.author.id,
+                        message.author.username,
+                        content
+                    );
+                }
+            }
+        } catch (error) {
+            console.error(
+                "Ticket message logging error:",
+                error
+            );
+        }
+
+        /*
+         * =========================
+         * VERIFICATION CHANNEL
+         * =========================
+         */
 
         if (
             message.channelId !==

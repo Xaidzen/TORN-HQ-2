@@ -9,6 +9,7 @@ const {
 
 const db = require("./database");
 const config = require("../utils/config");
+const { sendLog } = require("./tornLogger");
 
 const LOSS_RATE = 325000;
 
@@ -91,6 +92,8 @@ async function createLossTicket(guild, user, amount) {
         Date.now()
     );
 
+    const ticketId = Number(result.lastInsertRowid);
+
     const embed = new EmbedBuilder()
         .setColor(0x00ff00)
         .setDescription(
@@ -103,12 +106,12 @@ async function createLossTicket(guild, user, amount) {
 
     const buttons = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(`claim_ticket_${result.lastInsertRowid}`)
+            .setCustomId(`claim_ticket_${ticketId}`)
             .setLabel("Claim")
             .setStyle(ButtonStyle.Success),
 
         new ButtonBuilder()
-            .setCustomId(`close_ticket_${result.lastInsertRowid}`)
+            .setCustomId(`close_ticket_${ticketId}`)
             .setLabel("Close")
             .setStyle(ButtonStyle.Danger)
     );
@@ -122,6 +125,20 @@ async function createLossTicket(guild, user, amount) {
         embeds: [embed],
         components: [buttons]
     });
+
+    await sendLog(
+        guild,
+        "ticket",
+        {
+            customer: `<@${user.id}>`,
+            tornAccount: "Loss order",
+            service: "Loss Seller",
+            price: price,
+            status: "Opened",
+            ticket: `<#${channel.id}>`,
+            staff: "Unclaimed"
+        }
+    );
 
     return channel;
 }
@@ -194,6 +211,104 @@ function saveMessage(
     );
 }
 
+function getTicketMessages(ticketId) {
+    return db.prepare(`
+        SELECT
+            discord_id,
+            username,
+            content,
+            created_at
+        FROM ticket_messages
+        WHERE ticket_id = ?
+        ORDER BY created_at ASC
+    `).all(ticketId);
+}
+
+async function sendTicketCloseLog(
+    guild,
+    ticketId,
+    closedBy
+) {
+    const ticket = getTicket(ticketId);
+
+    if (!ticket) {
+        return false;
+    }
+
+    const messages = getTicketMessages(ticketId);
+
+    let conversation = messages
+        .map(message => {
+            const date = new Date(
+                message.created_at
+            );
+
+            return (
+                `**${message.username}** ` +
+                `(<t:${Math.floor(date.getTime() / 1000)}:f>)\n` +
+                `${message.content}`
+            );
+        })
+        .join("\n\n");
+
+    if (!conversation) {
+        conversation = "No messages recorded.";
+    }
+
+    if (conversation.length > 4000) {
+        conversation =
+            conversation.slice(0, 3950) +
+            "\n\n...Conversation truncated.";
+    }
+
+    const staff =
+        ticket.claimer_discord_id
+            ? `<@${ticket.claimer_discord_id}>`
+            : "Unclaimed";
+
+    const reason =
+        ticket.close_reason ||
+        "No reason provided";
+
+    const result = await sendLog(
+        guild,
+        "ticket",
+        {
+            customer:
+                `<@${ticket.owner_discord_id}>`,
+
+            tornAccount:
+                "Loss order",
+
+            service:
+                "Loss Seller",
+
+            price:
+                ticket.price,
+
+            status:
+                "Closed",
+
+            ticket:
+                `<#${ticket.channel_id}>`,
+
+            staff,
+
+            conversation,
+
+            closed: true,
+
+            closedBy:
+                `<@${closedBy}>`,
+
+            closeReason:
+                reason
+        }
+    );
+
+    return result;
+}
+
 module.exports = {
     LOSS_RATE,
     calculateLossPrice,
@@ -202,5 +317,7 @@ module.exports = {
     getTicket,
     claimTicket,
     closeTicket,
-    saveMessage
+    saveMessage,
+    getTicketMessages,
+    sendTicketCloseLog
 };

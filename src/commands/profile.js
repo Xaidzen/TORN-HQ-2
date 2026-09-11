@@ -1,19 +1,19 @@
 const {
     SlashCommandBuilder,
     EmbedBuilder
-} = require('discord.js');
+} = require("discord.js");
 
-const https = require('https');
-const db = require('../modules/database');
+const https = require("https");
+const db = require("../modules/database");
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('profile')
-        .setDescription('View your or others profile.')
+        .setName("profile")
+        .setDescription("View your or others profile.")
         .addUserOption(option =>
             option
-                .setName('user')
-                .setDescription('The Discord user whose Torn profile you want to view.')
+                .setName("user")
+                .setDescription("The Discord user whose Torn profile you want to view.")
                 .setRequired(false)
         ),
 
@@ -21,7 +21,8 @@ module.exports = {
         await interaction.deferReply();
 
         const targetDiscordUser =
-            interaction.options.getUser('user') || interaction.user;
+            interaction.options.getUser("user") ||
+            interaction.user;
 
         const row = db.prepare(`
             SELECT torn_id, torn_username, encrypted_api_key
@@ -31,23 +32,29 @@ module.exports = {
 
         if (!row || !row.encrypted_api_key) {
             return interaction.editReply({
-                content: `${targetDiscordUser} does not have a Torn API key connected.`
+                content:
+                    `${targetDiscordUser} does not have a Torn API key connected.`
             });
         }
 
         try {
-            const { decrypt } = require('../modules/tornApi');
-            const config = require('../utils/config');
+            const { decrypt } =
+                require("../modules/tornApi");
 
-            const apiKey = decrypt(
-                row.encrypted_api_key,
-                config.ENCRYPTION_KEY
-            );
+            const config =
+                require("../utils/config");
 
-            const profile = await getTornProfile(
-                apiKey,
-                row.torn_id
-            );
+            const apiKey =
+                decrypt(
+                    row.encrypted_api_key,
+                    config.ENCRYPTION_KEY
+                );
+
+            const profile =
+                await getTornProfile(
+                    apiKey,
+                    row.torn_id
+                );
 
             const lifeCurrent =
                 profile.life?.current ?? 0;
@@ -58,135 +65,163 @@ module.exports = {
             const factionName =
                 profile.faction?.faction_name ||
                 profile.faction?.name ||
-                'None';
+                "None";
 
             const propertyName =
                 profile.property?.name ||
                 profile.property ||
                 profile.property_name ||
-                'None';
+                "None";
 
             const friends =
-                typeof profile.friends === 'number'
+                typeof profile.friends === "number"
                     ? profile.friends
                     : profile.friends?.length ??
                       profile.friends_count ??
                       0;
 
             const enemies =
-                typeof profile.enemies === 'number'
+                typeof profile.enemies === "number"
                     ? profile.enemies
                     : profile.enemies?.length ??
                       profile.enemies_count ??
                       0;
 
             const age =
-                profile.age ?? 'N/A';
+                profile.age ?? "N/A";
 
-            let status = 'Offline';
+            let status = "Offline";
 
             if (profile.status) {
+
                 if (
-                    profile.status.state === 'Traveling' ||
-                    profile.status.state === 'Traveling Abroad'
+                    profile.status.state === "Traveling" ||
+                    profile.status.state === "Traveling Abroad"
                 ) {
                     const country =
                         profile.status.description ||
                         profile.status.details ||
-                        '';
+                        "";
 
-                    status = country
-                        ? `Flying ${country}`
-                        : 'Flying';
+                    status =
+                        country
+                            ? `Flying ${country}`
+                            : "Flying";
+
                 } else if (
-                    profile.status.state === 'Online'
+                    profile.status.state === "Online"
                 ) {
-                    status = 'Online';
+                    status = "Online";
+
                 } else if (
-                    profile.status.state === 'Idle'
+                    profile.status.state === "Idle"
                 ) {
-                    status = 'Idle';
+                    status = "Idle";
+
                 } else if (
                     profile.status.state
                 ) {
-                    status = profile.status.state;
+                    status =
+                        profile.status.state;
                 }
             }
 
-            const embed = new EmbedBuilder()
-                .setTitle(
-                    `Information of ${targetDiscordUser.username}`
-                )
-                .setDescription(
-                    `**${profile.name || row.torn_username} [${profile.player_id || row.torn_id}]**`
-                )
-                .setThumbnail(
-                    profile.profile_image ||
-                    profile.profile_image_url ||
-                    targetDiscordUser.displayAvatarURL({
-                        dynamic: true
+            const bazaar =
+                await getTornBazaar(
+                    apiKey,
+                    row.torn_id
+                );
+
+            let bazaarText = "N/A";
+
+            if (bazaar.exists) {
+                bazaarText =
+                    `Bazaar: [Link from Torn City](${bazaar.link})\n` +
+                    `Bazaar: [${bazaar.open ? "Open" : "Close"}]`;
+            }
+
+            const embed =
+                new EmbedBuilder()
+                    .setTitle(
+                        `Information of ${targetDiscordUser.username}`
+                    )
+                    .setDescription(
+                        `**${profile.name || row.torn_username} [${profile.player_id || row.torn_id}]**`
+                    )
+                    .setThumbnail(
+                        profile.profile_image ||
+                        profile.profile_image_url ||
+                        targetDiscordUser.displayAvatarURL({
+                            dynamic: true
+                        })
+                    )
+                    .addFields(
+                        {
+                            name: "Age",
+                            value: `${age}`,
+                            inline: false
+                        },
+                        {
+                            name: "Life",
+                            value:
+                                `${lifeCurrent}/${lifeMaximum}`,
+                            inline: false
+                        },
+                        {
+                            name: "Status",
+                            value: status,
+                            inline: false
+                        },
+                        {
+                            name: "Bazaar",
+                            value: bazaarText,
+                            inline: false
+                        },
+                        {
+                            name: "Faction",
+                            value: factionName,
+                            inline: false
+                        },
+                        {
+                            name: "Property",
+                            value: propertyName,
+                            inline: false
+                        },
+                        {
+                            name: "Friends",
+                            value: `${friends}`,
+                            inline: false
+                        },
+                        {
+                            name: "Enemies",
+                            value: `${enemies}`,
+                            inline: false
+                        }
+                    )
+                    .setFooter({
+                        text:
+                            `Torn ID: ${profile.player_id || row.torn_id}`
                     })
-                )
-                .addFields(
-                    {
-                        name: 'Age',
-                        value: `${age}`,
-                        inline: false
-                    },
-                    {
-                        name: 'Life',
-                        value: `${lifeCurrent}/${lifeMaximum}`,
-                        inline: false
-                    },
-                    {
-                        name: 'Status',
-                        value: status,
-                        inline: false
-                    },
-                    {
-                        name: 'Faction',
-                        value: factionName,
-                        inline: false
-                    },
-                    {
-                        name: 'Property',
-                        value: propertyName,
-                        inline: false
-                    },
-                    {
-                        name: 'Friends',
-                        value: `${friends}`,
-                        inline: false
-                    },
-                    {
-                        name: 'Enemies',
-                        value: `${enemies}`,
-                        inline: false
-                    }
-                )
-                .setFooter({
-                    text: `Torn ID: ${profile.player_id || row.torn_id}`
-                })
-                .setTimestamp();
+                    .setTimestamp();
 
             return interaction.editReply({
                 embeds: [embed]
             });
 
         } catch (error) {
+
             console.error(
-                'Profile command error:',
+                "Profile command error:",
                 error
             );
 
             return interaction.editReply({
                 content:
-                    'Unable to retrieve this Torn profile. Please check the connected API key.'
+                    "Unable to retrieve this Torn profile. Please check the connected API key."
             });
         }
     }
 };
-
 
 function getTornProfile(apiKey, tornId) {
     return new Promise((resolve, reject) => {
@@ -194,35 +229,145 @@ function getTornProfile(apiKey, tornId) {
         const url =
             `https://api.torn.com/user/${tornId}/?selections=profile&key=${encodeURIComponent(apiKey)}`;
 
-        https.get(url, response => {
+        https.get(
+            url,
+            response => {
 
-            let data = '';
+                let data = "";
 
-            response.on('data', chunk => {
-                data += chunk;
-            });
-
-            response.on('end', () => {
-
-                try {
-                    const result =
-                        JSON.parse(data);
-
-                    if (result.error) {
-                        return reject(
-                            new Error(
-                                `${result.error.code}: ${result.error.error}`
-                            )
-                        );
+                response.on(
+                    "data",
+                    chunk => {
+                        data += chunk;
                     }
+                );
 
-                    resolve(result);
+                response.on(
+                    "end",
+                    () => {
 
-                } catch (error) {
-                    reject(error);
-                }
-            });
+                        try {
 
-        }).on('error', reject);
+                            const result =
+                                JSON.parse(data);
+
+                            if (result.error) {
+                                return reject(
+                                    new Error(
+                                        `${result.error.code}: ${result.error.error}`
+                                    )
+                                );
+                            }
+
+                            resolve(result);
+
+                        } catch (error) {
+                            reject(error);
+                        }
+                    }
+                );
+            }
+        ).on(
+            "error",
+            reject
+        );
+    });
+}
+
+function getTornBazaar(apiKey, tornId) {
+    return new Promise((resolve) => {
+
+        const url =
+            `https://api.torn.com/user/${tornId}/?selections=bazaar&key=${encodeURIComponent(apiKey)}`;
+
+        https.get(
+            url,
+            response => {
+
+                let data = "";
+
+                response.on(
+                    "data",
+                    chunk => {
+                        data += chunk;
+                    }
+                );
+
+                response.on(
+                    "end",
+                    () => {
+
+                        try {
+
+                            const result =
+                                JSON.parse(data);
+
+                            console.log(
+                                `[BAZAAR] API response for ${tornId}:`,
+                                JSON.stringify(result)
+                            );
+
+                            if (result.error) {
+                                return resolve({
+                                    exists: false,
+                                    open: false,
+                                    link: null
+                                });
+                            }
+
+                            const bazaar =
+                                result.bazaar;
+
+                            const link =
+                                `https://www.torn.com/bazaar.php?userId=${tornId}#/`;
+
+                            if (!bazaar) {
+                                return resolve({
+                                    exists: false,
+                                    open: false,
+                                    link
+                                });
+                            }
+
+                            resolve({
+                                exists: true,
+                                open:
+                                    bazaar.open === true ||
+                                    bazaar.active === true,
+                                link
+                            });
+
+                        } catch (error) {
+
+                            console.error(
+                                "[BAZAAR] Parse error:",
+                                error
+                            );
+
+                            resolve({
+                                exists: false,
+                                open: false,
+                                link: null
+                            });
+                        }
+                    }
+                );
+            }
+        ).on(
+            "error",
+            error => {
+
+                console.error(
+                    "[BAZAAR] Request error:",
+                    error
+                );
+
+                resolve({
+                    exists: false,
+                    open: false,
+                    link: null
+                });
+            }
+        );
     });
 }

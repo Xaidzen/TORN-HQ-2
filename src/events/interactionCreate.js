@@ -43,7 +43,435 @@ module.exports = {
     name: "interactionCreate",
 
     async execute(interaction) {
+        if (
+            interaction.isChatInputCommand() &&
+            interaction.commandName !== "verify"
+        ) {
+            const isVerified =
+                interaction.member?.roles?.cache?.has(
+                    config.VERIFIED_ROLE_ID
+                );
+
+            if (!isVerified) {
+                await interaction.reply({
+                    content:
+                        "You must verify your Torn account first using `/verify`.",
+                    ephemeral: true
+                });
+
+                return;
+            }
+        }
+
+
+
+
+        if (interaction.isChatInputCommand()) {
+
+            if (interaction.commandName !== "verify") {
+
+                const verifiedRoleId =
+                    config.VERIFIED_ROLE_ID;
+
+                const isVerified =
+                    verifiedRoleId &&
+                    interaction.member?.roles?.cache?.has(
+                        verifiedRoleId
+                    );
+
+                if (!isVerified) {
+
+                    if (!interaction.replied &&
+                        !interaction.deferred) {
+
+                        await interaction.reply({
+                            content:
+                                "You must verify your Torn account first using `/verify`.",
+                            ephemeral: true
+                        });
+
+                    }
+
+                    return;
+                }
+            }
+        }
+
+
+
+        // Only /verify is allowed in the verification channel
+        if (
+            interaction.isChatInputCommand() &&
+            interaction.channelId ===
+                config.ENTER_VERIFICATION_CHANNEL_ID &&
+            interaction.commandName !== "verify"
+        ) {
+            await interaction.reply({
+                content:
+                    "Only `/verify` can be used in this channel.",
+                ephemeral: true
+            });
+            return;
+        }
+
+
+
+        // Unverified users can only use /verify
+        if (
+            interaction.isChatInputCommand() &&
+            interaction.commandName !== "verify"
+        ) {
+            const verifiedRoleId =
+                config.VERIFIED_ROLE_ID;
+
+            const isVerified =
+                verifiedRoleId &&
+                interaction.member?.roles?.cache?.has(
+                    verifiedRoleId
+                );
+
+            if (!isVerified) {
+                await interaction.reply({
+                    content:
+                        "You must verify your Torn account first using `/verify`.",
+                    ephemeral: true
+                });
+                return;
+            }
+        }
         try {
+
+
+            /* =========================
+               LOSS CONTRACT CLAIM SYSTEM
+            ========================= */
+
+            if (
+                interaction.isButton() &&
+                interaction.customId.startsWith("claim_contract_")
+            ) {
+                const contractId = Number(
+                    interaction.customId.replace(
+                        "claim_contract_",
+                        ""
+                    )
+                );
+
+                const contract =
+                    contractSystem.getContract(contractId);
+
+                if (!contract) {
+                    await interaction.reply({
+                        content:
+                            "This contract no longer exists.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                if (
+                    contract.type !== "loss" ||
+                    contract.status === "claimed"
+                ) {
+                    await interaction.reply({
+                        content:
+                            "This loss contract is no longer available.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                if (contract.available_amount <= 0) {
+                    await interaction.reply({
+                        content:
+                            "There are no losses available in this contract.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const existingClaim =
+                    claimTracker.getActiveClaimForUser(
+                        interaction.user.id,
+                        contractId
+                    );
+
+                if (existingClaim) {
+                    await interaction.reply({
+                        content:
+                            `You already have Claim #${existingClaim.id} for this contract.`,
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const modal =
+                    new ModalBuilder()
+                        .setCustomId(
+                            `loss_claim_${contractId}`
+                        )
+                        .setTitle("Loss Claim");
+
+                const amountInput =
+                    new TextInputBuilder()
+                        .setCustomId("loss_amount")
+                        .setLabel(
+                            "How many losses you want to claim?"
+                        )
+                        .setPlaceholder("Example: 40")
+                        .setStyle(
+                            TextInputStyle.Short
+                        )
+                        .setRequired(true)
+                        .setMinLength(1)
+                        .setMaxLength(2);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        amountInput
+                    )
+                );
+
+                await interaction.showModal(modal);
+                return;
+            }
+
+
+            /* =========================
+               UNCLAIM LOSS CONTRACT
+            ========================= */
+
+            if (
+                interaction.isButton() &&
+                interaction.customId.startsWith(
+                    "unclaim_contract_"
+                )
+            ) {
+                const contractId = Number(
+                    interaction.customId.replace(
+                        "unclaim_contract_",
+                        ""
+                    )
+                );
+
+                const claim =
+                    claimTracker.getActiveClaimForUser(
+                        interaction.user.id,
+                        contractId
+                    );
+
+                if (!claim) {
+                    await interaction.reply({
+                        content:
+                            "You do not have an active claim for this contract.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const returned =
+                    claim.amount_claimed -
+                    claim.amount_completed;
+
+                claimTracker.unclaim(
+                    claim.id,
+                    interaction.user.id
+                );
+
+                await interaction.reply({
+                    content:
+                        `Claim #${claim.id} has been unclaimed.\n` +
+                        `${returned} losses have been returned to the contract.`,
+                    ephemeral: true
+                });
+
+                return;
+            }
+
+
+            /* =========================
+               LOSS CLAIM MODAL
+            ========================= */
+
+            if (
+                interaction.isModalSubmit() &&
+                interaction.customId.startsWith(
+                    "loss_claim_"
+                )
+            ) {
+                const contractId = Number(
+                    interaction.customId.replace(
+                        "loss_claim_",
+                        ""
+                    )
+                );
+
+                const amountText =
+                    interaction.fields
+                        .getTextInputValue(
+                            "loss_amount"
+                        )
+                        .trim();
+
+                const amount =
+                    Number(amountText);
+
+                if (
+                    !Number.isInteger(amount) ||
+                    amount < 1 ||
+                    amount > 40
+                ) {
+                    await interaction.reply({
+                        content:
+                            "You can only claim between 1 and 40 losses.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const contract =
+                    contractSystem.getContract(
+                        contractId
+                    );
+
+                if (!contract) {
+                    await interaction.reply({
+                        content:
+                            "This contract no longer exists.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                if (
+                    contract.type !== "loss" ||
+                    contract.status === "claimed"
+                ) {
+                    await interaction.reply({
+                        content:
+                            "This contract is no longer available.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                if (
+                    amount >
+                    contract.available_amount
+                ) {
+                    await interaction.reply({
+                        content:
+                            `Only ${contract.available_amount} losses are currently available.`,
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const existingClaim =
+                    claimTracker.getActiveClaimForUser(
+                        interaction.user.id,
+                        contractId
+                    );
+
+                if (existingClaim) {
+                    await interaction.reply({
+                        content:
+                            `You already have Claim #${existingClaim.id} for this contract.`,
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                const user =
+                    getUser(
+                        interaction.user.id
+                    );
+
+                if (!user) {
+                    await interaction.reply({
+                        content:
+                            "You must verify your Torn account before claiming a contract.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                try {
+                    const payout =
+                        Math.floor(
+                            (
+                                contract.payout /
+                                contract.total_amount
+                            ) * amount
+                        );
+
+                    const claim =
+                        claimTracker.createClaim({
+                            contractId:
+                                contract.id,
+
+                            guildId:
+                                interaction.guild.id,
+
+                            discordUserId:
+                                interaction.user.id,
+
+                            tornUserId:
+                                user.torn_id,
+
+                            targetId:
+                                contract.target_id,
+
+                            amount:
+                                amount,
+
+                            payout:
+                                payout
+                        });
+
+                    await interaction.reply({
+                        content:
+                            `Claim #${claim.id} created. Check your Direct Messages.`,
+                        ephemeral: true
+                    });
+
+                    try {
+                        await interaction.user.send({
+                            embeds: [
+                                claimTracker.createClaimEmbed(
+                                    claim,
+                                    contract
+                                )
+                            ]
+                        });
+                    } catch (error) {
+                        console.error(
+                            "Unable to DM claimant:",
+                            error.message
+                        );
+                    }
+
+                } catch (error) {
+                    console.error(
+                        "Loss claim error:",
+                        error
+                    );
+
+                    if (
+                        !interaction.replied &&
+                        !interaction.deferred
+                    ) {
+                        await interaction.reply({
+                            content:
+                                error.message ||
+                                "Unable to create your claim.",
+                            ephemeral: true
+                        });
+                    }
+                }
+
+                return;
+            }
 
             /* =========================
                SLASH COMMANDS

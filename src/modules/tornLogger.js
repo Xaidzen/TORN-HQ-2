@@ -2,25 +2,15 @@ const {
     EmbedBuilder
 } = require("discord.js");
 
-/*
- * TORN HQ LOG CHANNELS
- *
- * Replace the values with your Discord channel IDs.
- */
-
 const LOG_CHANNELS = {
-    losses: "LOSS_CHANNEL_ID",
-    bounties: "BOUNTY_CHANNEL_ID",
-    contracts: "CONTRACT_CHANNEL_ID",
-    payments: "PAYMENT_CHANNEL_ID",
-    services: "SERVICE_CHANNEL_ID",
-    general: "GENERAL_LOG_CHANNEL_ID"
+    losses: process.env.LOSS_LOG_CHANNEL_ID,
+    bounties: process.env.BOUNTY_LOG_CHANNEL_ID,
+    contracts: process.env.CONTRACT_LOG_CHANNEL_ID,
+    payments: process.env.PAYMENT_LOG_CHANNEL_ID,
+    services: process.env.SERVICE_LOG_CHANNEL_ID,
+    general: process.env.GENERAL_LOG_CHANNEL_ID
 };
 
-
-/*
- * Get a Discord channel safely.
- */
 async function getChannel(guild, channelId) {
     if (!guild || !channelId) {
         return null;
@@ -29,33 +19,18 @@ async function getChannel(guild, channelId) {
     try {
         return await guild.channels.fetch(channelId);
     } catch (error) {
-        console.error(
-            "Unable to fetch log channel:",
-            error
-        );
-
+        console.error("Unable to fetch log channel:", error);
         return null;
     }
 }
 
-
-/*
- * Send a TORN HQ log.
- */
-async function sendLog(
-    guild,
-    type,
-    data = {}
-) {
+async function sendLog(guild, type, data = {}) {
     const channelId =
         LOG_CHANNELS[type] ||
         LOG_CHANNELS.general;
 
     const channel =
-        await getChannel(
-            guild,
-            channelId
-        );
+        await getChannel(guild, channelId);
 
     if (!channel) {
         return false;
@@ -65,11 +40,7 @@ async function sendLog(
         new EmbedBuilder()
             .setTimestamp();
 
-    /*
-     * LOSS
-     */
     if (type === "losses") {
-
         embed
             .setTitle("⚔️ Loss Log")
             .setDescription(
@@ -122,14 +93,8 @@ async function sendLog(
                 inline: false
             });
         }
-    }
 
-
-    /*
-     * BOUNTY
-     */
-    else if (type === "bounties") {
-
+    } else if (type === "bounties") {
         embed
             .setTitle("🎯 Bounty Log")
             .setDescription(
@@ -166,14 +131,8 @@ async function sendLog(
                     inline: true
                 }
             );
-    }
 
-
-    /*
-     * CONTRACT
-     */
-    else if (type === "contracts") {
-
+    } else if (type === "contracts") {
         embed
             .setTitle("📜 Contract Log")
             .setDescription(
@@ -213,14 +172,8 @@ async function sendLog(
                     inline: true
                 }
             );
-    }
 
-
-    /*
-     * PAYMENT
-     */
-    else if (type === "payments") {
-
+    } else if (type === "payments") {
         embed
             .setTitle("💰 Payment Log")
             .setDescription(
@@ -260,14 +213,8 @@ async function sendLog(
                     inline: true
                 }
             );
-    }
 
-
-    /*
-     * SERVICE
-     */
-    else if (type === "services") {
-
+    } else if (type === "services") {
         embed
             .setTitle("🛠️ Service Log")
             .setDescription(
@@ -320,18 +267,82 @@ async function sendLog(
                 inline: false
             });
         }
-    }
 
-
-    /*
-     * GENERAL
-     */
-    else {
-
+    } else if (type === "ticket") {
         embed
-            .setTitle(
-                data.title || "TORN HQ Log"
+            .setTitle("🎫 Ticket Order Log")
+            .setDescription(
+                `**${data.customer || "Unknown"}**`
             )
+            .addFields(
+                {
+                    name: "Torn Account",
+                    value: data.tornAccount || "Unknown",
+                    inline: false
+                },
+                {
+                    name: "Service",
+                    value: data.service || "Unknown",
+                    inline: true
+                },
+                {
+                    name: "Price",
+                    value: data.price
+                        ? `$${Number(data.price).toLocaleString()}`
+                        : "N/A",
+                    inline: true
+                },
+                {
+                    name: "Status",
+                    value: data.status || "Opened",
+                    inline: true
+                },
+                {
+                    name: "Ticket",
+                    value: data.ticket || "Unknown",
+                    inline: false
+                },
+                {
+                    name: "Staff",
+                    value: data.staff || "Unknown",
+                    inline: true
+                }
+            );
+
+        if (data.conversation) {
+            const conversation =
+                String(data.conversation).slice(0, 4000);
+
+            embed.addFields({
+                name: "💬 Conversation",
+                value: conversation || "No messages.",
+                inline: false
+            });
+        }
+
+        if (data.closed) {
+            embed.addFields(
+                {
+                    name: "🔒 Ticket Closed",
+                    value: "Yes",
+                    inline: true
+                },
+                {
+                    name: "Closed By",
+                    value: data.closedBy || "Unknown",
+                    inline: true
+                },
+                {
+                    name: "Close Reason",
+                    value: data.closeReason || "No reason provided",
+                    inline: false
+                }
+            );
+        }
+
+    } else {
+        embed
+            .setTitle(data.title || "TORN HQ Log")
             .setDescription(
                 data.description || "No information."
             );
@@ -353,7 +364,6 @@ async function sendLog(
         return false;
     }
 }
-
 
 module.exports = {
     LOG_CHANNELS,
