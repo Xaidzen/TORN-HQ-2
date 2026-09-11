@@ -1,123 +1,309 @@
 const {
-    EmbedBuilder
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require('discord.js');
 
-const database = require('./database');
+const fs = require('fs');
+const path = require('path');
 
-function createLossContract({
-    guildId,
-    channelId,
-    targetId,
-    targetName,
-    totalLosses,
-    payout
-}) {
-    const stmt = database.prepare(`
-        INSERT INTO contracts (
-            guild_id,
-            type,
-            channel_id,
-            target_id,
-            target_name,
-            total_amount,
-            available_amount,
-            payout,
-            status,
-            created_at
-        )
-        VALUES (?, 'loss', ?, ?, ?, ?, ?, ?, 'open', ?)
-    `);
+const DATA_DIR = path.join(__dirname, '../../data');
+const CONTRACT_FILE = path.join(DATA_DIR, 'contracts.json');
 
-    const result = stmt.run(
-        guildId,
-        channelId,
-        targetId,
-        targetName || null,
-        totalLosses,
-        totalLosses,
-        payout,
-        Date.now()
-    );
-
-    return getContract(result.lastInsertRowid);
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function getContract(id) {
-    return database.prepare(`
-        SELECT *
-        FROM contracts
-        WHERE id = ?
-    `).get(id);
+if (!fs.existsSync(CONTRACT_FILE)) {
+    fs.writeFileSync(CONTRACT_FILE, JSON.stringify({
+        contracts: [],
+        claims: []
+    }, null, 2));
 }
 
-function getAvailableContract(guildId, type) {
-    return database.prepare(`
-        SELECT *
-        FROM contracts
-        WHERE guild_id = ?
-        AND type = ?
-        AND status = 'open'
-        AND available_amount > 0
-        ORDER BY id ASC
-        LIMIT 1
-    `).get(guildId, type);
-}
-
-function createLossEmbed(contract) {
-    return new EmbedBuilder()
-        .setColor(0x57F287)
-        .setTitle('Loss Contract')
-        .setDescription(
-            `${contract.available_amount}+ losses available.\n` +
-            `Please use pillow or plastic sword when attacking buyers.`
-        );
-}
-
-function updateAvailableAmount(contractId, amount) {
-    database.prepare(`
-        UPDATE contracts
-        SET available_amount = ?
-        WHERE id = ?
-    `).run(amount, contractId);
-}
-
-function closeContractIfEmpty(contractId) {
-    const contract = getContract(contractId);
-
-    if (!contract) return;
-
-    if (contract.available_amount <= 0) {
-        database.prepare(`
-            UPDATE contracts
-            SET status = 'claimed'
-            WHERE id = ?
-        `).run(contractId);
+function loadData() {
+    try {
+        return JSON.parse(fs.readFileSync(CONTRACT_FILE, 'utf8'));
+    } catch {
+        return {
+            contracts: [],
+            claims: []
+        };
     }
 }
 
-function returnLosses(contractId, amount) {
-    const contract = getContract(contractId);
+function saveData(data) {
+    fs.writeFileSync(
+        CONTRACT_FILE,
+        JSON.stringify(data, null, 2)
+    );
+}
 
-    if (!contract) return false;
+function generateId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+}
 
-    const newAmount = contract.available_amount + amount;
+function createLossContract({
+    targetId,
+    totalLosses,
+    payoutPerLoss,
+    ticketId,
+    createdBy
+}) {
+    if (!targetId) {
+        throw new Error('Target ID is required.');
+    }
 
-    database.prepare(`
-        UPDATE contracts
-        SET available_amount = ?,
-            status = 'open'
-        WHERE id = ?
-    `).run(newAmount, contractId);
+    if (!Number.isInteger(totalLosses) || totalLosses < 1) {
+        throw new Error('Invalid loss amount.');
+    }
 
-    return true;
+    const data = loadData();
+
+    const contract = {
+        id: generateId('L'),
+        targetId: String(targetId),
+        targetLink: `https://www.torn.com/profiles.php?XID=${targetId}`,
+        totalLosses,
+        availableLosses: totalLosses,
+        payoutPerLoss,
+        ticketId: ticketId || null,
+        createdBy,
+        createdAt: Date.now(),
+        status: 'active'
+    };
+
+    data.contracts.push(contract);
+    saveData(data);
+
+    return contract;
+}
+
+function getContract(contractId) {
+    const data = loadData();
+
+    return data.contracts.find(
+        contract => contract.id === contractId
+    );
+}
+
+function getActiveLossContracts() {
+    const data = loadData();
+
+    return data.contracts.filter(
+        contract =>
+            contract.status === 'active' &&
+            contract.availableLosses > 0
+    );
+}
+
+function claimLosses(contractId, userId, amount) {
+    const data = loadData();
+
+    const contract = data.contracts.find(
+        c => c.id === contractId
+    );
+
+    if (!contract) {
+        throw new Error('Contract not found.');
+    }
+
+    if (contract.status !== 'active') {
+        throw new Error('This contract is no longer active.');
+    }
+
+    if (!Number.isInteger(amount) || amount < 1 || amount > 40) {
+        throw new Error('You can only claim between 1 and 40 losses.');
+    }
+
+    if (amount > contract.availableLosses) {
+        throw new Error(
+            `Only ${contract.availableLosses} losses are currently available.`
+        );
+    }
+
+    const existingClaim = data.claims.find(
+        claim =>
+            claim.contractId === contractId &&
+            claim.userId === userId &&
+            ['active', 'tracking'].includes(claim.status)
+    );
+
+    if (existingClaim) {
+        throw new Error(
+            'You already have an active claim for this contract.'
+        );
+    }
+
+    contract.availableLosses -= amount;
+
+    const claim = {
+        id: generateId('C'),
+        claimNumber: data.claims.length + 1,
+        contractId: contract.id,
+        userId,
+        targetId: contract.targetId,
+        targetLink: contract.targetLink,
+
+        amountClaimed: amount,
+        completedLosses: 0,
+
+        payoutPerLoss: contract.payoutPerLoss,
+        payout: amount * contract.payoutPerLoss,
+
+        createdAt: Date.now(),
+        deadline: Date.now() + (30 * 60 * 1000),
+
+        status: 'active'
+    };
+
+    data.claims.push(claim);
+
+    saveData(data);
+
+    return claim;
+}
+
+function unclaimLosses(claimId, userId) {
+    const data = loadData();
+
+    const claim = data.claims.find(
+        c =>
+            c.id === claimId &&
+            c.userId === userId
+    );
+
+    if (!claim) {
+        throw new Error('Claim not found.');
+    }
+
+    if (!['active', 'tracking'].includes(claim.status)) {
+        throw new Error('This claim cannot be unclaimed.');
+    }
+
+    const contract = data.contracts.find(
+        c => c.id === claim.contractId
+    );
+
+    if (contract) {
+        const remaining =
+            claim.amountClaimed - claim.completedLosses;
+
+        contract.availableLosses += remaining;
+    }
+
+    claim.status = 'unclaimed';
+    claim.unclaimedAt = Date.now();
+
+    saveData(data);
+
+    return claim;
+}
+
+function getClaim(claimId) {
+    const data = loadData();
+
+    return data.claims.find(
+        claim => claim.id === claimId
+    );
+}
+
+function getUserActiveClaims(userId) {
+    const data = loadData();
+
+    return data.claims.filter(
+        claim =>
+            claim.userId === userId &&
+            ['active', 'tracking'].includes(claim.status)
+    );
+}
+
+function updateClaimProgress(claimId, completedLosses) {
+    const data = loadData();
+
+    const claim = data.claims.find(
+        c => c.id === claimId
+    );
+
+    if (!claim) {
+        return null;
+    }
+
+    claim.completedLosses = Math.min(
+        completedLosses,
+        claim.amountClaimed
+    );
+
+    claim.status =
+        claim.completedLosses >= claim.amountClaimed
+            ? 'completed'
+            : 'tracking';
+
+    if (claim.status === 'completed') {
+        claim.completedAt = Date.now();
+    }
+
+    saveData(data);
+
+    return claim;
+}
+
+function buildContractEmbed(contract) {
+    return new EmbedBuilder()
+        .setColor(0x2ecc71)
+        .setTitle('Loss Contract')
+        .setDescription(
+            `**${contract.availableLosses} losses available.**\n\n` +
+            `Reminder: Use only pillow or plastic sword when attacking the buyer.`
+        )
+        .addFields(
+            {
+                name: 'Target',
+                value: `[${contract.targetId}](${contract.targetLink})`,
+                inline: true
+            },
+            {
+                name: 'Payout Per Loss',
+                value: `$${contract.payoutPerLoss.toLocaleString()}`,
+                inline: true
+            },
+            {
+                name: 'Contract ID',
+                value: `\`${contract.id}\``,
+                inline: true
+            }
+        )
+        .setFooter({
+            text: `Contract ${contract.id}`
+        });
+}
+
+function buildContractButtons(contractId) {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`loss_claim:${contractId}`)
+            .setLabel('Claim')
+            .setStyle(ButtonStyle.Success),
+
+        new ButtonBuilder()
+            .setCustomId(`loss_unclaim:${contractId}`)
+            .setLabel('Unclaim')
+            .setStyle(ButtonStyle.Danger)
+    );
 }
 
 module.exports = {
+    loadData,
+    saveData,
     createLossContract,
     getContract,
-    getAvailableContract,
-    createLossEmbed,
-    updateAvailableAmount,
-    closeContractIfEmpty,
-    returnLosses
+    getActiveLossContracts,
+    claimLosses,
+    unclaimLosses,
+    getClaim,
+    getUserActiveClaims,
+    updateClaimProgress,
+    buildContractEmbed,
+    buildContractButtons
 };
