@@ -27,20 +27,6 @@ const {
 } = require("../modules/serviceRoles");
 
 const {
-    handleContractInteraction
-} = require("./interactionCreateContracts");
-async execute(interaction) {
-    const handled =
-        await handleContractInteraction(interaction);
-
-    if (handled !== false) {
-        return;
-    }
-
-    // YOUR EXISTING interactionCreate.js CODE BELOW
-}
-
-const {
     createLossTicket,
     getTicket,
     getTicketByChannel,
