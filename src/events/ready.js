@@ -3,7 +3,7 @@ const {
 } = require("../modules/verificationMonitor");
 
 module.exports = {
-    name: "ready",
+    name: "clientReady",
     once: true,
 
     async execute(client) {
