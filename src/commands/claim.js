@@ -1,68 +1,42 @@
 const {
     SlashCommandBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle
+    PermissionFlagsBits
 } = require('discord.js');
 
-const contractSystem = require('../modules/contractSystem');
+const contractSystem =
+    require('../modules/contractSystem');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('claim')
-        .setDescription('Claim a contract.')
-        .addStringOption(option =>
-            option
-                .setName('type')
-                .setDescription('Choose the contract type.')
-                .setRequired(true)
-                .addChoices(
-                    { name: 'Loss', value: 'loss' },
-                    { name: 'Bounty', value: 'bounty' }
-                )
-        ),
+        .setDescription('View your active loss claims.'),
 
     async execute(interaction) {
-        const type = interaction.options.getString('type');
-
-        if (type === 'loss') {
-            const contract = contractSystem.getAvailableContract(
-                interaction.guild.id,
-                'loss'
+        const claims =
+            contractSystem.getUserActiveClaims(
+                interaction.user.id
             );
 
-            if (!contract) {
-                return interaction.reply({
-                    content: 'There are currently no available loss contracts.',
-                    ephemeral: true
-                });
-            }
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`claim_contract_${contract.id}`)
-                    .setLabel('Claim')
-                    .setStyle(ButtonStyle.Success),
-
-                new ButtonBuilder()
-                    .setCustomId(`unclaim_contract_${contract.id}`)
-                    .setLabel('Unclaim')
-                    .setStyle(ButtonStyle.Danger)
-            );
-
+        if (!claims.length) {
             return interaction.reply({
-                content: `Loss Contract #${contract.id}`,
-                embeds: [contractSystem.createLossEmbed(contract)],
-                components: [row],
+                content:
+                    'You do not have any active loss claims.',
                 ephemeral: true
             });
         }
 
-        if (type === 'bounty') {
-            return interaction.reply({
-                content: 'Bounty claiming system is ready to be connected to the bounty contract system.',
-                ephemeral: true
-            });
-        }
+        const text = claims.map(claim => {
+            return (
+                `**Claim #${claim.claimNumber}**\n` +
+                `Claim ID: \`${claim.id}\`\n` +
+                `Progress: **${claim.completedLosses}/${claim.amountClaimed}**\n` +
+                `Target: [${claim.targetId}](${claim.targetLink})`
+            );
+        }).join('\n\n');
+
+        return interaction.reply({
+            content: text,
+            ephemeral: true
+        });
     }
 };
