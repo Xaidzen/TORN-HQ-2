@@ -10,6 +10,7 @@ const path = require("path");
 
 const config = require("./utils/config");
 const logger = require("./utils/logger");
+const { checkVerifiedUsers } = require("./modules/verificationMonitor");
 
 const client = new Client({
     intents: [
@@ -101,4 +102,26 @@ for (const file of eventFiles) {
 
 client.login(
     config.DISCORD_TOKEN
-);
+).then(() => {
+
+    console.log(
+        "Verification monitor started."
+    );
+
+    // Check verified users every 5 minutes
+    setInterval(
+        async () => {
+            await checkVerifiedUsers(client);
+        },
+        5 * 60 * 1000
+    );
+
+    // Run once immediately
+    checkVerifiedUsers(client);
+
+}).catch(error => {
+    console.error(
+        "Discord login failed:",
+        error
+    );
+});
