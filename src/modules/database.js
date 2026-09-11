@@ -50,6 +50,52 @@ db.exec(`
             REFERENCES tickets(ticket_id)
             ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS contracts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        channel_id TEXT,
+        target_id TEXT NOT NULL,
+        target_name TEXT,
+        total_amount INTEGER NOT NULL,
+        available_amount INTEGER NOT NULL,
+        payout INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contract_id INTEGER NOT NULL,
+        guild_id TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        torn_id TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        amount_claimed INTEGER NOT NULL,
+        amount_completed INTEGER NOT NULL DEFAULT 0,
+        payout INTEGER NOT NULL,
+        started_at INTEGER NOT NULL,
+        deadline INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+
+        FOREIGN KEY(contract_id)
+            REFERENCES contracts(id)
+            ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS claim_attacks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        claim_id INTEGER NOT NULL,
+        attack_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+
+        UNIQUE(claim_id, attack_id),
+
+        FOREIGN KEY(claim_id)
+            REFERENCES claims(id)
+            ON DELETE CASCADE
+    );
 `);
 
 module.exports = db;
