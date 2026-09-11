@@ -8,6 +8,8 @@ const {
 const fs = require("fs");
 const path = require("path");
 
+const tornAttackTracker =
+    require("./modules/tornAttackTracker");
 const config = require("./utils/config");
 const logger = require("./utils/logger");
 const { checkVerifiedUsers } = require("./modules/verificationMonitor");
@@ -108,7 +110,6 @@ client.login(
         "Verification monitor started."
     );
 
-    // Check verified users every 5 minutes
     setInterval(
         async () => {
             await checkVerifiedUsers(client);
@@ -116,8 +117,9 @@ client.login(
         5 * 60 * 1000
     );
 
-    // Run once immediately
     checkVerifiedUsers(client);
+
+    tornAttackTracker.startTracker();
 
 }).catch(error => {
     console.error(
